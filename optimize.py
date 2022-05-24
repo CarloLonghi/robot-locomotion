@@ -17,9 +17,9 @@ async def main() -> None:
     SAMPLING_FREQUENCY = 8
     CONTROL_FREQUENCY = 8
 
-    POPULATION_SIZE = 50
+    POPULATION_SIZE = 100
     OFFSPRING_SIZE = 50
-    NUM_GENERATIONS = 150
+    NUM_GENERATIONS = 100
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -33,7 +33,7 @@ async def main() -> None:
     rng.seed(5)
 
     # database
-    database = open_async_database_sqlite("./databases/test_1_collision")
+    database = open_async_database_sqlite("./databases/test_pop_2")
 
     # process id generator
     process_id_gen = ProcessIdGen()
