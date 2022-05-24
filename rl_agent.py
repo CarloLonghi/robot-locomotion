@@ -125,7 +125,7 @@ def make_ant_body() -> DirectTreeGenotype:
 
 def make_agent() -> Agent:
     body = make_ant_body()
-    brain = RLbrain()
+    brain = None
 
     return Agent(body, brain)
 

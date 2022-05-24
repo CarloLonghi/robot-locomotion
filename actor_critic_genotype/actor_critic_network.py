@@ -14,13 +14,17 @@ class Actor(nn.Module):
         """
         super().__init__()
         self.mean_layer = nn.Linear(obs_dim, act_dim)
-        self.std_layer = nn.Parameter(torch.zeros(1, act_dim))
+        #self.std_layer = nn.Parameter(torch.zeros(1, act_dim))
+        self.std_layer = nn.Linear(obs_dim, act_dim)
 
     def forward(self, obs):
         mean = self.mean_layer(obs)
-        std = torch.exp(self.std_layer)
-
-        return Normal(mean, std)
+        #std = torch.exp(self.std_layer)
+        std = torch.exp(self.std_layer(obs))
+        action_prob = Normal(mean, std)
+        action = action_prob.sample()
+        logp = action_prob.log_prob(action).sum(-1, keepdim=True)
+        return action, logp
 
 class Critic(nn.Module):
     def __init__(self, obs_dim):
@@ -43,15 +47,17 @@ class ActorCritic(nn.Module):
             act_dim: number of actuators in output
         """
         super().__init__()
-        self.encoder = ObservationEncoder(obs_dim=obs_dim)
+        self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
+        self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
         self.actor = Actor(obs_dim=64, act_dim=act_dim)
         self.critic = Critic(obs_dim=64)
     
     def forward(self, obs: List[float]):
-        encoded_obs = self.encoder(obs)
-        action = self.actor(encoded_obs)
-        value = self.critic(encoded_obs)
-        return action, value
+        val_obs = self.val_encoder(obs)
+        pi_obs = self.pi_encoder(obs)
+        action, logp = self.actor(pi_obs)
+        value = self.critic(val_obs)
+        return value, action, logp
 
 class ObservationEncoder(nn.Module):
     def __init__(self, obs_dim):

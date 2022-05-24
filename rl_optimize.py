@@ -12,20 +12,22 @@ from random import Random
 
 async def main() -> None:
     # number of initial mutations for body and brain CPPNWIN networks
-    SIMULATION_TIME = 60
+    LEARNING_INTERACTIONS = 1e5
     SAMPLING_FREQUENCY = 8
     CONTROL_FREQUENCY = 8
+    POPULATION_SIZE = 20
+    SIMULATION_TIME = int(LEARNING_INTERACTIONS / (CONTROL_FREQUENCY * POPULATION_SIZE))
 
     logging.basicConfig(
         level=logging.DEBUG,
         format="[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s",
     )
 
-    logging.info(f"Starting optimization")
+    logging.info(f"Starting learning")
 
     # random number generator
     rng = Random()
-    rng.seed(5)
+    rng.seed(42)
 
     # database
     database = open_async_database_sqlite("./RLdatabases/test_1")
@@ -41,14 +43,14 @@ async def main() -> None:
         simulation_time=SIMULATION_TIME
     )
 
-    # initialize agent
-    agent = make_agent()
+    # initialize agent population
+    agents = [make_agent() for _ in range(POPULATION_SIZE)]
+    
+    logging.info("Starting learning process..")
 
-    logging.info("Starting optimization process..")
+    await optimizer.train(agents)
 
-    await optimizer.train(agent)
-
-    logging.info(f"Finished optimizing.")
+    logging.info(f"Finished learning.")
 
 
 if __name__ == "__main__":

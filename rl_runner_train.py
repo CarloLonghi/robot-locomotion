@@ -17,6 +17,9 @@ from revolve2.core.physics.running import (
     Runner,
     State,
 )
+import torch
+
+from interaction_buffer import Buffer
 
 
 class LocalRunner(Runner):
@@ -45,6 +48,8 @@ class LocalRunner(Runner):
             batch: Batch,
             sim_params: gymapi.SimParams,
             headless: bool,
+            controller,
+            num_agents: int,
         ):
             self._gym = gymapi.acquire_gym()
             self._batch = batch
@@ -57,6 +62,8 @@ class LocalRunner(Runner):
             else:
                 self._viewer = self._create_viewer()
 
+            self.controller = controller
+            self._num_agents = num_agents
             self._gym.prepare_sim(self._sim)
 
         def _create_sim(self, sim_params: gymapi.SimParams) -> gymapi.Sim:
@@ -194,12 +201,17 @@ class LocalRunner(Runner):
 
             control_step = 1 / self._batch.control_frequency
             sample_step = 1 / self._batch.sampling_frequency
+            timestep = 0
 
             last_control_time = 0.0
             last_sample_time = 0.0
 
             # sample initial state
             states.append((0.0, self._get_state()))
+            old_state = self._get_state()
+            old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
+
+            buffer = Buffer(8,8, self._num_agents)
 
             while (
                 time := self._gym.get_sim_time(self._sim)
@@ -208,11 +220,11 @@ class LocalRunner(Runner):
                 if time >= last_control_time + control_step:
                     last_control_time = math.floor(time / control_step) * control_step
                     control = ActorControl()
-                    env_handle = self._gymenvs[0].env
                     actor_handle = self._gymenvs[0].actors[0]
-                    hinges_data = self._gym.get_actor_dof_states(env_handle, actor_handle,gymapi.STATE_POS)
-                    hinges_pos = [hinges_d[0] for hinges_d in hinges_data]
-                    self._batch.control(0.2, control, hinges_pos)
+                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_POS) for env_idx in range(self._num_agents)]
+                    hinges_pos = [[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data]
+                    hinge_vel = [[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data]
+                    actions, values, logps = self._batch.control(0.2, control, hinges_pos)
 
                     for (env_index, actor_index, targets) in control._dof_targets:
                         env_handle = self._gymenvs[env_index].env
@@ -246,14 +258,32 @@ class LocalRunner(Runner):
                             targets,
                         )
                     
-                    #TODO get reward and state and save them to a buffer
-                
-                #TODO if a certain number of steps passed do training
-
-                # sample state if it is time
-                if time >= last_sample_time + sample_step:
-                    last_sample_time = int(time / sample_step) * sample_step
+                    #get state action value and logp and save them to a buffer
                     states.append((time, self._get_state()))
+                    #observations += hinges_pos
+                    new_state = self._get_state()
+                    new_positions = [new_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
+                    rewards = torch.tensor([self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)])
+                    buffer.insert(obs=torch.tensor(hinges_pos),
+                                    act=actions,
+                                    logp=logps,
+                                    val=values,
+                                    rew=rewards)
+                    old_positions = new_positions
+                    timestep += 1
+
+                #if a certain number of steps passed do training
+                if timestep >= 127:
+                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_POS) for env_idx in range(self._num_agents)]
+                    hinges_pos = [[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data]
+                    _, next_values, _ = self._batch.control(0.2, control, hinges_pos)
+                    buffer.set_next_state_value(next_values)
+                    #TODO do training
+                    self.controller.train(buffer)
+
+                    timestep = 0
+                    buffer = Buffer(8,8, self._num_agents)
+
 
                 # step simulation
                 self._gym.simulate(self._sim)
@@ -301,6 +331,18 @@ class LocalRunner(Runner):
 
             return state
 
+        def _compute_rewards(self, states):
+            rewards = []
+            for i in range(len(states) - 1):
+                rewards[i] = self._calculate_velocity(states[i], states[i+1])
+
+            return rewards
+
+        def _calculate_velocity(self, state1, state2):
+            dx = state2.x - state1.x
+            dy = state2.y - state1.y
+            return math.sqrt(dx**2 + dy**2)
+
     _sim_params: gymapi.SimParams
     _headless: bool
 
@@ -324,12 +366,12 @@ class LocalRunner(Runner):
 
         return sim_params
 
-    async def run_batch(self, batch: Batch) -> List[Tuple[float, State]]:
+    async def run_batch(self, batch: Batch, controller, num_agents) -> List[Tuple[float, State]]:
         # sadly we must run Isaac Gym in a subprocess, because it has some big memory leaks.
         result_queue: mp.Queue = mp.Queue()  # type: ignore # TODO
         process = mp.Process(
             target=self._run_batch_impl,
-            args=(result_queue, batch, self._sim_params, self._headless),
+            args=(result_queue, batch, self._sim_params, self._headless, controller, num_agents),
         )
         process.start()
         states = []
@@ -350,8 +392,10 @@ class LocalRunner(Runner):
         batch: Batch,
         sim_params: gymapi.SimParams,
         headless: bool,
+        controller,
+        num_agents: int
     ) -> None:
-        _Simulator = cls._Simulator(batch, sim_params, headless)
+        _Simulator = cls._Simulator(batch, sim_params, headless, controller, num_agents)
         states = _Simulator.run()
         _Simulator.cleanup()
         for state in states:

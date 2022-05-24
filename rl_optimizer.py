@@ -4,6 +4,9 @@ from random import Random
 from typing import List, Tuple
 
 import sqlalchemy
+import torch
+from actor_critic_genotype.actor_critic_network import ActorCritic
+from actor_critic_genotype.rl_brain import RLbrain
 from rl_agent import Agent, develop
 from pyrr import Quaternion, Vector3
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -26,14 +29,14 @@ from revolve2.core.physics.running import (
     PosedActor,
     Runner,
 )
-from rl_runner import LocalRunner
+from rl_runner_train import LocalRunner
 
 
 class RLOptimizer():
 
     _runner: Runner
 
-    _controllers: List[ActorController]
+    _controller: ActorController
 
     _rng: Random
 
@@ -58,9 +61,18 @@ class RLOptimizer():
     def _init_runner(self) -> None:
         self._runner = LocalRunner(LocalRunner.SimParams(), headless=False)
 
-    def _control(self, dt: float, control: ActorControl, observation) -> None:
-        for control_i, controller in enumerate(self._controllers):
-            control.set_dof_targets(control_i, 0, controller.get_dof_targets(observation))
+    def _control(self, dt: float, control: ActorControl, observations):
+        num_agents = len(observations)
+        actions = torch.zeros(num_agents,8)
+        values = torch.zeros(num_agents)
+        logps = torch.zeros(num_agents)
+        for control_i in range(num_agents):
+            action, value, logp = self._controller.get_dof_targets(observations[control_i])
+            control.set_dof_targets(control_i, 0, action)
+            actions[control_i] = torch.tensor(action)
+            values[control_i] = value
+            logps[control_i] = logp
+        return actions, values, logps
 
     @staticmethod
     def _calculate_fitness(begin_state: ActorState, end_state: ActorState) -> float:
@@ -73,7 +85,7 @@ class RLOptimizer():
             )
         )
 
-    async def train(self, agent):
+    async def train(self, agents):
         batch = Batch(
             simulation_time=self._simulation_time,
             sampling_frequency=self._sampling_frequency,
@@ -81,27 +93,31 @@ class RLOptimizer():
             control=self._control,
         )
 
-        self._controllers = []
+        brain = RLbrain()
 
-        actor, controller = develop(agent).make_actor_and_controller()
-        bounding_box = actor.calc_aabb()
-        self._controllers.append(controller)
-        env = Environment()
-        env.actors.append(
-            PosedActor(
-                actor,
-                Vector3(
-                    [
-                        0.0,
-                        0.0,
-                        bounding_box.size.z / 2.0 - bounding_box.offset.z,
-                    ]
-                ),
-                Quaternion(),
+        for agent_idx, agent in enumerate(agents):
+            agent.brain = brain
+            actor, controller = develop(agent).make_actor_and_controller()
+            if agent_idx == 0:
+                self._controller = controller
+            bounding_box = actor.calc_aabb()
+            env = Environment()
+            env.actors.append(
+                PosedActor(
+                    actor,
+                    Vector3(
+                        [
+                            0.0,
+                            0.0,
+                            bounding_box.size.z / 2.0 - bounding_box.offset.z,
+                        ]
+                    ),
+                    Quaternion(),
+                )
             )
-        )
-        batch.environments.append(env)
+            batch.environments.append(env)
+        
 
-        states = await self._runner.run_batch(batch)
-
+        states = await self._runner.run_batch(batch, self._controller, len(agents))
+        
         return 

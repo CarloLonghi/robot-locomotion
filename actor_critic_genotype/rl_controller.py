@@ -5,9 +5,12 @@ from typing import List
 import numpy as np
 import numpy.typing as npt
 import torch
+from torch.optim import Adam
 
 from revolve2.actor_controller import ActorController
 from revolve2.serialization import SerializeError, StaticData
+
+from interaction_buffer import Buffer
 from .actor_critic_network import Actor, ActorCritic, Critic, ObservationEncoder
 
 
@@ -25,26 +28,58 @@ class RLcontroller(ActorController):
         First num_output_neurons will be dof targets
         """
         self._actor_critic = actor_critic
-        self._actor = actor_critic.actor
-        self._critic = actor_critic.critic
-        self._obs_encoder = actor_critic.encoder
         self._dof_ranges = dof_ranges
+        self.device = torch.device("cuda:0")
+        #self._actor_critic.to(self.device)
+        params = [p for p in self._actor_critic.parameters() if p.requires_grad]
+        self.optimizer = Adam(params, lr=1e-4)
+        self._iteration_num = 1
 
     def get_dof_targets(self, observation) -> List[float]:
         observation = torch.tensor(observation)
-        action, value = self._actor_critic(observation)
-        action = action.sample()
+        value, action, logp = self._actor_critic(observation)
         return list(
             np.clip(
                 action[0],
                 a_min=-self._dof_ranges,
                 a_max=self._dof_ranges,
             )
-        )
+        ), value, logp
 
-    # TODO
-    def train_step(gradient):
-        return
+    
+    def train(self, buffer: Buffer):
+        eps = 0.2
+        print(f"\nITERATION NUM: {self._iteration_num}")
+        self._iteration_num += 1
+        for epoch in range(4):
+            batch_sampler = buffer.get_sampler()
+
+            ppo_losses = []
+            val_losses = []
+            losses = []
+            for obs, val, act, logp_old, rew, adv, ret in batch_sampler:
+                logp_old = logp_old.detach()
+                adv = adv.detach()
+                ret = ret.detach()
+                value, action, logp = self._actor_critic(obs)
+                ratio = torch.exp(logp - logp_old)
+                obj1 = ratio * adv
+                obj2 = torch.clamp(ratio, 1.0 - eps, 1.0 + eps) * adv
+                ppo_loss = -torch.min(obj1, obj2).mean()
+                val_loss = 0.5 * (ret - value).pow(2).mean()
+                #print(f"ret = {ret.mean()}, value = {value.mean()}")
+                
+                self.optimizer.zero_grad()
+                loss = 0.5*val_loss + ppo_loss
+                loss.backward()
+                self.optimizer.step()
+                ppo_losses.append(ppo_loss.item())
+                val_losses.append(val_loss.item())
+                losses.append(loss.item())
+
+            print(f"EPOCH {epoch + 1} loss ppo:  {np.mean(ppo_losses)}, loss val: {np.mean(val_losses)}, final loss: {np.mean(losses)}")
+
+
 
     # TODO
     def step(self, dt: float):
@@ -52,9 +87,6 @@ class RLcontroller(ActorController):
 
     def serialize(self) -> StaticData:
         return {
-            "actor_state": self._actor.state_dict(),
-            "critic_state": self._critic.state_dict(),
-            "encoder_state": self._obs_encoder.state_dict(),
             "num_input_neurons": self._num_input_neurons,
             "num_output_neurons": self._num_output_neurons,
             "dof_ranges": self._dof_ranges.tolist(),
