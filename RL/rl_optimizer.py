@@ -5,9 +5,9 @@ from typing import List, Tuple
 
 import sqlalchemy
 import torch
-from actor_critic_genotype.actor_critic_network import ActorCritic
-from actor_critic_genotype.rl_brain import RLbrain
-from rl_agent import Agent, develop
+from RL.actor_critic_network import ActorCritic
+from RL.rl_brain import RLbrain
+from RL.rl_agent import Agent, develop
 from pyrr import Quaternion, Vector3
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio.session import AsyncSession
@@ -29,7 +29,7 @@ from revolve2.core.physics.running import (
     PosedActor,
     Runner,
 )
-from rl_runner_train import LocalRunner
+from RL.rl_runner_train import LocalRunner
 
 
 class RLOptimizer():
@@ -61,31 +61,30 @@ class RLOptimizer():
     def _init_runner(self) -> None:
         self._runner = LocalRunner(LocalRunner.SimParams(), headless=False)
 
-    def _control(self, dt: float, control: ActorControl, observations):
-        num_agents = len(observations)
-        actions = torch.zeros(num_agents,8)
+    def _control(self, dt: float, control: ActorControl, observations): # TODO what is td?
+        num_agents = observations.shape[1]
+        num_obs = observations.shape[0]
+        num_act = observations.shape[2]
+        actions = torch.zeros(num_agents,num_act)
         values = torch.zeros(num_agents)
         logps = torch.zeros(num_agents)
+
+        # for each agent in the simulation make a step
         for control_i in range(num_agents):
-            action, value, logp = self._controller.get_dof_targets(observations[control_i])
+            action, value, logp = self._controller.get_dof_targets(observations[:,control_i,:])
             control.set_dof_targets(control_i, 0, action)
-            actions[control_i] = torch.tensor(action)
+            actions[control_i] = action
             values[control_i] = value
             logps[control_i] = logp
         return actions, values, logps
 
-    @staticmethod
-    def _calculate_fitness(begin_state: ActorState, end_state: ActorState) -> float:
-
-        # distance traveled on the xy plane
-        return float(
-            math.sqrt(
-                (begin_state.position[0] - end_state.position[0]) ** 2
-                + ((begin_state.position[1] - end_state.position[1]) ** 2)
-            )
-        )
-
-    async def train(self, agents):
+    async def train(self, agents: List[Agent], from_checkpoint: bool = False):
+        """
+        Create the agents, insert them in the simulation and run it
+        args:
+            agents: list of agents to simulate
+            from_checkpoint: if True resumes training from the last checkpoint
+        """
         batch = Batch(
             simulation_time=self._simulation_time,
             sampling_frequency=self._sampling_frequency,
@@ -93,8 +92,10 @@ class RLOptimizer():
             control=self._control,
         )
 
-        brain = RLbrain()
+        # we create only one brain as it is shared across all the agents
+        brain = RLbrain(from_checkpoint=from_checkpoint)
 
+        # insert agents in the simulation environment
         for agent_idx, agent in enumerate(agents):
             agent.brain = brain
             actor, controller = develop(agent).make_actor_and_controller()
@@ -117,7 +118,8 @@ class RLOptimizer():
             )
             batch.environments.append(env)
         
+        # run the simulation
+        await self._runner.run_batch(batch, self._controller, len(agents))
 
-        states = await self._runner.run_batch(batch, self._controller, len(agents))
         
         return 

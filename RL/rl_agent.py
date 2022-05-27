@@ -17,7 +17,7 @@ from revolve2.genotypes.cppnwin import crossover_v1 as cppnwin_crossover, mutate
 from revolve2.genotypes.cppnwin.modular_robot.brain_genotype_cpg_v1 import (
     random_v1 as brain_random,
 )
-from actor_critic_genotype.rl_brain import RLbrain
+from RL.rl_brain import RLbrain
 
 from direct_tree.direct_tree_genotype import DirectTreeGenotype
 from direct_tree.direct_tree_config import DirectTreeGenotypeConfig
@@ -35,10 +35,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.future import select
 
 from direct_tree.direct_tree_utils import duplicate_subtree
-from actor_critic_genotype.actor_critic_network import ActorCritic
+from RL.actor_critic_network import ActorCritic
+
+import robot_zoo
 
 def _make_direct_tree_config() -> DirectTreeGenotypeConfig:
-
+    """
+    Parameters to evolve the body the agents
+    """
     morph_single_mutation_prob = 0.2
     morph_no_single_mutation_prob = 1 - morph_single_mutation_prob  # 0.8
     morph_no_all_mutation_prob = morph_no_single_mutation_prob ** 4  # 0.4096
@@ -74,57 +78,9 @@ class Agent:
     body: DirectTreeGenotype
     brain: RLbrain
 
-def make_super_ant_body() -> DirectTreeGenotype:
-    body = Body()
-    body.core.left = ActiveHinge(0.0)
-    body.core.left.attachment = ActiveHinge(math.pi / 2)
-    body.core.left.attachment.attachment = Brick(0.0)
-    body.core.right = ActiveHinge(0.0)
-    body.core.right.attachment = ActiveHinge(math.pi / 2)
-    body.core.right.attachment.attachment = Brick(0.0)
-    body.core.back = ActiveHinge(math.pi / 2)
-    body.core.back.attachment = Brick(math.pi / 2)
-    body.core.back.attachment.left = ActiveHinge(0.0)
-    body.core.back.attachment.left.attachment = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.left.attachment.attachment = Brick(0.0)
-    body.core.back.attachment.right = ActiveHinge(0.0)
-    body.core.back.attachment.right.attachment = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.right.attachment.attachment = Brick(0.0)
-    body.core.back.attachment.front = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.front.attachment = Brick(math.pi / 2)
-    body.core.back.attachment.front.attachment.left = ActiveHinge(0.0)
-    body.core.back.attachment.front.attachment.left.attachment = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.front.attachment.left.attachment.attachment = Brick(0.0)
-    body.core.back.attachment.front.attachment.right = ActiveHinge(0.0)
-    body.core.back.attachment.front.attachment.right.attachment = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.front.attachment.right.attachment.attachment = Brick(0.0)
-
-    return DirectTreeGenotype(body)
-
-def make_ant_body() -> DirectTreeGenotype:
-    body = Body()
-    body.core.left = ActiveHinge(0.0)
-    body.core.left.attachment = Brick(0.0)
-    body.core.right = ActiveHinge(0.0)
-    body.core.right.attachment = Brick(0.0)
-    body.core.back = ActiveHinge(math.pi / 2)
-    body.core.back.attachment = Brick(math.pi / 2)
-    body.core.back.attachment.left = ActiveHinge(0.0)
-    body.core.back.attachment.left.attachment = Brick(0.0)
-    body.core.back.attachment.right = ActiveHinge(0.0)
-    body.core.back.attachment.right.attachment = Brick(0.0)
-    body.core.back.attachment.front = ActiveHinge(math.pi / 2)
-    body.core.back.attachment.front.attachment = Brick(math.pi / 2)
-    body.core.back.attachment.front.attachment.left = ActiveHinge(0.0)
-    body.core.back.attachment.front.attachment.left.attachment = Brick(0.0)
-    body.core.back.attachment.front.attachment.right = ActiveHinge(0.0)
-    body.core.back.attachment.front.attachment.right.attachment = Brick(0.0)
-
-    return DirectTreeGenotype(body)
-
 
 def make_agent() -> Agent:
-    body = make_ant_body()
+    body = robot_zoo.make_ant_body()
     brain = None
 
     return Agent(body, brain)

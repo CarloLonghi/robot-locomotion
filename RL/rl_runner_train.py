@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from isaacgym import gymapi
+import numpy as np
 from pyrr import Quaternion, Vector3
 
 from revolve2.core.physics.actor.urdf import to_urdf as physbot_to_urdf
@@ -19,7 +20,7 @@ from revolve2.core.physics.running import (
 )
 import torch
 
-from interaction_buffer import Buffer
+from RL.interaction_buffer import Buffer
 
 
 class LocalRunner(Runner):
@@ -197,7 +198,6 @@ class LocalRunner(Runner):
             return viewer
 
         def run(self) -> List[Tuple[float, State]]:
-            states: List[Tuple[float, State]] = []  # (time, state)
 
             control_step = 1 / self._batch.control_frequency
             sample_step = 1 / self._batch.sampling_frequency
@@ -207,24 +207,30 @@ class LocalRunner(Runner):
             last_sample_time = 0.0
 
             # sample initial state
-            states.append((0.0, self._get_state()))
-            old_state = self._get_state()
+            old_state, velocities = self._get_state()
             old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer(8,8, self._num_agents)
+            buffer = Buffer((2,8),8, self._num_agents)
+            sum_rewards = np.zeros((128, self._num_agents))
+            mean_values = np.zeros(128)
 
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
                 # do control if it is time
-                if time >= last_control_time + control_step:
+                if timestep == 0 or time >= last_control_time + control_step:
                     last_control_time = math.floor(time / control_step) * control_step
                     control = ActorControl()
                     actor_handle = self._gymenvs[0].actors[0]
-                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_POS) for env_idx in range(self._num_agents)]
-                    hinges_pos = [[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data]
-                    hinge_vel = [[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data]
-                    actions, values, logps = self._batch.control(0.2, control, hinges_pos)
+
+                    # get hinges current position and velocity
+                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
+                    hinges_pos = torch.tensor([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    hinges_vel = torch.tensor([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    observations = torch.cat((hinges_pos.unsqueeze(0), hinges_vel.unsqueeze(0)), dim=0)
+
+                    # get the action, value and logprob of the action for the current state
+                    new_actions, new_values, new_logps = self._batch.control(0.2, control, observations)
 
                     for (env_index, actor_index, targets) in control._dof_targets:
                         env_handle = self._gymenvs[env_index].env
@@ -258,31 +264,54 @@ class LocalRunner(Runner):
                             targets,
                         )
                     
-                    #get state action value and logp and save them to a buffer
-                    states.append((time, self._get_state()))
-                    #observations += hinges_pos
-                    new_state = self._get_state()
-                    new_positions = [new_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
-                    rewards = torch.tensor([self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)])
-                    buffer.insert(obs=torch.tensor(hinges_pos),
-                                    act=actions,
-                                    logp=logps,
-                                    val=values,
-                                    rew=rewards)
-                    old_positions = new_positions
+                    new_state, velocities = self._get_state()
+                    
+                    if timestep != 0:
+                        # get the new positions of each agent
+                        new_positions = [new_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
+
+                        # compute the rewards from the new and old positions of the agents
+                        rewards = torch.tensor([self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)])                        
+                        #rewards = torch.tensor([(vel[0] + vel[1]) for vel in velocities])
+
+                        # insert data of the current state in the replay buffer
+                        buffer.insert(obs=observations,
+                                        act=actions,
+                                        logp=logps,
+                                        val=values,
+                                        rew=rewards)
+
+                        sum_rewards[timestep-1] = rewards
+                        mean_values[timestep-1] = values.mean()
+                        old_positions = new_positions
+
+                    actions = new_actions
+                    logps = new_logps
+                    values = new_values
                     timestep += 1
 
-                #if a certain number of steps passed do training
-                if timestep >= 127:
-                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_POS) for env_idx in range(self._num_agents)]
-                    hinges_pos = [[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data]
-                    _, next_values, _ = self._batch.control(0.2, control, hinges_pos)
+                # every 128 steps do training
+                if timestep >= 129:
+
+                    # get the value for the last state and put it in the buffer
+                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
+                    hinges_pos = torch.tensor([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    hinges_vel = torch.tensor([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    observations = torch.cat((hinges_pos.unsqueeze(0), hinges_vel.unsqueeze(0)), dim=0)
+                    _, next_values, _ = self._batch.control(0.2, control, observations)
                     buffer.set_next_state_value(next_values)
-                    #TODO do training
+
+                    print(f"\nAverage cumulative reward after 128 steps: {np.mean(np.sum(sum_rewards, axis=1))}")
+                    print(f"Average state value: {np.mean(mean_values)}")
+                    sum_rewards = np.zeros((128, self._num_agents))
+                    mean_values = np.zeros(128)
+                    buffer._compute_advantages()
+
+                    # do training
                     self.controller.train(buffer)
 
                     timestep = 0
-                    buffer = Buffer(8,8, self._num_agents)
+                    buffer = Buffer((2,8),8, self._num_agents)
 
 
                 # step simulation
@@ -293,10 +322,6 @@ class LocalRunner(Runner):
                 if self._viewer is not None:
                     self._gym.draw_viewer(self._viewer, self._sim, False)
 
-            # sample one final time
-            states.append((time, self._get_state()))
-
-            return states
 
         def cleanup(self) -> None:
             if self._viewer is not None:
@@ -304,15 +329,21 @@ class LocalRunner(Runner):
             self._gym.destroy_sim(self._sim)
 
         def _get_state(self) -> State:
+            """
+            Get position and velocity of all the agents
+            """
             state = State([])
+            velocities = []
 
             for gymenv in self._gymenvs:
                 env_state = EnvironmentState([])
                 for actor_handle in gymenv.actors:
-                    pose = self._gym.get_actor_rigid_body_states(
-                        gymenv.env, actor_handle, gymapi.STATE_POS
-                    )["pose"]
+                    states = self._gym.get_actor_rigid_body_states(
+                        gymenv.env, actor_handle, gymapi.STATE_ALL
+                    )
+                    pose = states['pose']
                     position = pose["p"][0]  # [0] is center of root element
+                    velocity = states['vel']['linear'][0]
                     orientation = pose["r"][0]
                     env_state.actor_states.append(
                         ActorState(
@@ -328,20 +359,17 @@ class LocalRunner(Runner):
                         )
                     )
                 state.envs.append(env_state)
+                velocities.append(velocity)
 
-            return state
-
-        def _compute_rewards(self, states):
-            rewards = []
-            for i in range(len(states) - 1):
-                rewards[i] = self._calculate_velocity(states[i], states[i+1])
-
-            return rewards
+            return state, velocities
 
         def _calculate_velocity(self, state1, state2):
+            """
+            Calculate the velocity for all agents at a timestep
+            """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return math.sqrt(dx**2 + dy**2)
+            return dx + dy
 
     _sim_params: gymapi.SimParams
     _headless: bool

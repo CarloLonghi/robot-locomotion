@@ -1,4 +1,4 @@
-from genotype import GenotypeSerializer, develop
+from GA.genotype import GenotypeSerializer, develop
 from sqlalchemy.ext.asyncio.session import AsyncSession
 from sqlalchemy.future import select
 
@@ -10,7 +10,7 @@ from revolve2.runners.isaacgym import ModularRobotRerunner
 
 async def main() -> None:
 
-    db = open_async_database_sqlite("./databases/test_1_collision/")
+    db = open_async_database_sqlite("./databases/test_pop_2/")
     async with AsyncSession(db) as session:
         best_individual = (
             await session.execute(

@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import multineat
 import sqlalchemy
-from genotype import Genotype, GenotypeSerializer, crossover, develop, mutate
+from GA.genotype import Genotype, GenotypeSerializer, crossover, develop, mutate
 from pyrr import Quaternion, Vector3
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio.session import AsyncSession
@@ -145,7 +145,7 @@ class Optimizer(EAOptimizer[Genotype, float]):
         return True
 
     def _init_runner(self) -> None:
-        self._runner = LocalRunner(LocalRunner.SimParams(), headless=True)
+        self._runner = LocalRunner(LocalRunner.SimParams(), headless=False)
 
     def _select_parents(
         self,

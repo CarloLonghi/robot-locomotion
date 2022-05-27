@@ -2,12 +2,12 @@ import logging
 from random import Random
 
 import multineat
-from genotype import Genotype
-from optimizer import Optimizer
+from GA.genotype import Genotype
+from GA.optimizer import Optimizer
 
 from revolve2.core.database import open_async_database_sqlite
 from revolve2.core.optimization import ProcessIdGen
-from genotype import random as random_genotype
+from GA.genotype import random as random_genotype
 
 async def main() -> None:
     # number of initial mutations for body and brain CPPNWIN networks
@@ -33,7 +33,7 @@ async def main() -> None:
     rng.seed(5)
 
     # database
-    database = open_async_database_sqlite("./databases/test_pop_2")
+    database = open_async_database_sqlite("./GA/databases/test")
 
     # process id generator
     process_id_gen = ProcessIdGen()
