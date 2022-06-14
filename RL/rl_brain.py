@@ -8,12 +8,12 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import numpy.typing as npt
-from revolve2.actor_controllers.cpg import Cpg as ControllerCpg
 
 from revolve2.actor_controller import ActorController
 from revolve2.core.modular_robot import ActiveHinge, Body, Brain
 from RL.rl_controller import RLcontroller
 from .actor_critic_network import Actor, ActorCritic
+from .config import NUM_OBS_TIMES
 
 
 class RLbrain(Brain, ABC):
@@ -30,7 +30,7 @@ class RLbrain(Brain, ABC):
         """
         active_hinges = body.find_active_hinges()
         num_hinges = len(active_hinges)
-        actor_critic = ActorCritic([num_hinges, num_hinges], num_hinges)
+        actor_critic = ActorCritic([num_hinges*NUM_OBS_TIMES,], num_hinges)
 
         return RLcontroller(
             actor_critic,

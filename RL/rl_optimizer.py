@@ -2,6 +2,7 @@ import math
 import pickle
 from random import Random
 from typing import List, Tuple
+import numpy as np
 
 import sqlalchemy
 import torch
@@ -43,6 +44,7 @@ class RLOptimizer():
     _simulation_time: int
     _sampling_frequency: float
     _control_frequency: float
+    _visualize: bool
 
     def __init__(
         self,
@@ -50,8 +52,10 @@ class RLOptimizer():
         simulation_time: int,
         sampling_frequency: float,
         control_frequency: float,
+        visualize: bool,
     ) -> None:
         
+        self._visualize = visualize
         self._init_runner()
         self._rng = rng
         self._simulation_time = simulation_time
@@ -59,23 +63,22 @@ class RLOptimizer():
         self._control_frequency = control_frequency
 
     def _init_runner(self) -> None:
-        self._runner = LocalRunner(LocalRunner.SimParams(), headless=False)
+        self._runner = LocalRunner(LocalRunner.SimParams(), headless=(not self._visualize))
 
     def _control(self, dt: float, control: ActorControl, observations): # TODO what is td?
-        num_agents = observations.shape[1]
-        num_obs = observations.shape[0]
-        num_act = observations.shape[2]
-        actions = torch.zeros(num_agents,num_act)
-        values = torch.zeros(num_agents)
-        logps = torch.zeros(num_agents)
+        num_agents = len(observations[0])
+        actions = []
+        values = []
+        logps = []
 
         # for each agent in the simulation make a step
         for control_i in range(num_agents):
             action, value, logp = self._controller.get_dof_targets(observations[:,control_i,:])
-            control.set_dof_targets(control_i, 0, action)
-            actions[control_i] = action
-            values[control_i] = value
-            logps[control_i] = logp
+            control.set_dof_targets(control_i, 0, torch.clip(action, -1.0, 1.0))
+            #control.set_dof_targets(control_i, 0, np.array([1.0 for _ in action], dtype=np.float32))
+            actions.append(action.tolist())
+            values.append(value.tolist())
+            logps.append(logp.tolist())
         return actions, values, logps
 
     async def train(self, agents: List[Agent], from_checkpoint: bool = False):
@@ -114,6 +117,7 @@ class RLOptimizer():
                         ]
                     ),
                     Quaternion(),
+                    [0.0 for _ in range(6)]
                 )
             )
             batch.environments.append(env)

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from isaacgym import gymapi
+from matplotlib.pyplot import axis
 import numpy as np
 from pyrr import Quaternion, Vector3
 
@@ -16,11 +17,13 @@ from revolve2.core.physics.running import (
     Batch,
     EnvironmentState,
     Runner,
-    State,
+    RunnerState,
 )
+from revolve2.core.physics.actor import Actor
 import torch
 
 from RL.interaction_buffer import Buffer
+from .config import NUM_STEPS
 
 
 class LocalRunner(Runner):
@@ -100,6 +103,7 @@ class LocalRunner(Runner):
                 )
 
                 gymenv = self.GymEnv(env, [])
+                gymenvs.append(gymenv)
 
                 for actor_index, posed_actor in enumerate(env_descr.actors):
                     # sadly isaac gym can only read robot descriptions from a file,
@@ -118,7 +122,11 @@ class LocalRunner(Runner):
                     botfile.close()
                     asset_root = os.path.dirname(botfile.name)
                     urdf_file = os.path.basename(botfile.name)
-                    actor_asset = self._gym.load_urdf(self._sim, asset_root, urdf_file)
+                    asset_options = gymapi.AssetOptions()
+                    asset_options.angular_damping = 0.0
+                    actor_asset = self._gym.load_urdf(
+                        self._sim, asset_root, urdf_file, asset_options
+                    )                    
                     os.remove(botfile.name)
 
                     if actor_asset is None:
@@ -147,16 +155,22 @@ class LocalRunner(Runner):
                     )
 
                     actor_handle: int = self._gym.create_actor(
-                        env, actor_asset, pose, f"robot_{actor_index}", env_index, 0
+                        env,
+                        actor_asset,
+                        pose,
+                        f"robot_{actor_index}",
+                        env_index,
+                        0,
                     )
+                    gymenv.actors.append(actor_handle)
 
                     self._gym.end_aggregate(env)
 
                     # TODO make all this configurable.
                     props = self._gym.get_actor_dof_properties(env, actor_handle)
                     props["driveMode"].fill(gymapi.DOF_MODE_POS)
-                    props["stiffness"].fill(0.5)
-                    props["damping"].fill(0.01)
+                    props["stiffness"].fill(1.0)
+                    props["damping"].fill(0.05)                    
                     self._gym.set_actor_dof_properties(env, actor_handle, props)
 
                     all_rigid_props = self._gym.get_actor_rigid_shape_properties(
@@ -173,10 +187,13 @@ class LocalRunner(Runner):
                     self._gym.set_actor_rigid_shape_properties(
                         env, actor_handle, all_rigid_props
                     )
-
-                    gymenv.actors.append(actor_handle)
-
-                gymenvs.append(gymenv)
+                    # TODO
+                    #self.set_actor_dof_position_targets(
+                    #    env, actor_handle, posed_actor.actor, posed_actor.dof_states
+                    #)
+                    #self.set_actor_dof_positions(
+                    #    env, actor_handle, posed_actor.actor, posed_actor.dof_states
+                    #)                    
 
             return gymenvs
 
@@ -197,7 +214,7 @@ class LocalRunner(Runner):
 
             return viewer
 
-        def run(self) -> List[Tuple[float, State]]:
+        def run(self) -> List[RunnerState]:
 
             control_step = 1 / self._batch.control_frequency
             sample_step = 1 / self._batch.sampling_frequency
@@ -207,13 +224,15 @@ class LocalRunner(Runner):
             last_sample_time = 0.0
 
             # sample initial state
-            old_state, velocities = self._get_state()
+            old_state, velocities = self._get_state(0.0)
             old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer((2,8),8, self._num_agents)
-            sum_rewards = np.zeros((128, self._num_agents))
-            mean_values = np.zeros(128)
-
+            buffer = Buffer((1,6),6, self._num_agents)
+            sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
+            mean_values = np.zeros(NUM_STEPS)
+            
+            self._set_initial_position()
+            observations = np.zeros((self._num_agents, 4*6))
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -221,58 +240,47 @@ class LocalRunner(Runner):
                 if timestep == 0 or time >= last_control_time + control_step:
                     last_control_time = math.floor(time / control_step) * control_step
                     control = ActorControl()
-                    actor_handle = self._gymenvs[0].actors[0]
 
                     # get hinges current position and velocity
-                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
-                    hinges_pos = torch.tensor([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    hinges_vel = torch.tensor([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    observations = torch.cat((hinges_pos.unsqueeze(0), hinges_vel.unsqueeze(0)), dim=0)
+                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, 0, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
+                    hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+
+                    #if timestep != 0:
+                        #observation normalization
+                        #hinges_pos = (hinges_pos - hinges_pos.mean(dim=0)) / (hinges_pos.std(dim=0) + 1e-8)
+                        #hinges_vel = (hinges_vel - hinges_vel.mean(dim=0)) / (hinges_vel.std(dim=0) + 1e-8)
+
+                    #observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
+                    #observations = np.expand_dims(hinges_pos, 0)
+                    observations = np.concatenate((hinges_pos, observations.squeeze()[:,:18]),axis=1)
+                    observations = np.expand_dims(observations, 0).astype(np.float32)
 
                     # get the action, value and logprob of the action for the current state
-                    new_actions, new_values, new_logps = self._batch.control(0.2, control, observations)
+                    new_actions, new_values, new_logps = self._batch.control(control_step, control, torch.tensor(observations))
 
                     for (env_index, actor_index, targets) in control._dof_targets:
                         env_handle = self._gymenvs[env_index].env
                         actor_handle = self._gymenvs[env_index].actors[actor_index]
-
-                        if len(targets) != len(
+                        actor = (
                             self._batch.environments[env_index]
                             .actors[actor_index]
-                            .actor.joints
-                        ):
-                            raise RuntimeError("Need to set a target for every dof")
-
-                        if not all(
-                            [
-                                target >= -joint.range and target <= joint.range
-                                for target, joint in zip(
-                                    targets,
-                                    self._batch.environments[env_index]
-                                    .actors[actor_index]
-                                    .actor.joints,
-                                )
-                            ]
-                        ):
-                            raise RuntimeError(
-                                "Dof targets must lie within the joints range."
-                            )
-
-                        self._gym.set_actor_dof_position_targets(
-                            env_handle,
-                            actor_handle,
-                            targets,
+                            .actor
                         )
+
+                        self.set_actor_dof_position_targets(
+                            env_handle, actor_handle, actor, targets
+                        )                        
                     
-                    new_state, velocities = self._get_state()
+                    new_state, velocities = self._get_state(time)
                     
-                    if timestep != 0:
+                    if timestep > 0:
                         # get the new positions of each agent
                         new_positions = [new_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
                         # compute the rewards from the new and old positions of the agents
-                        rewards = torch.tensor([self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)])                        
-                        #rewards = torch.tensor([(vel[0] + vel[1]) for vel in velocities])
+                        #rewards = [self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)]                       
+                        rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
 
                         # insert data of the current state in the replay buffer
                         buffer.insert(obs=observations,
@@ -282,7 +290,7 @@ class LocalRunner(Runner):
                                         rew=rewards)
 
                         sum_rewards[timestep-1] = rewards
-                        mean_values[timestep-1] = values.mean()
+                        mean_values[timestep-1] = np.mean(values)
                         old_positions = new_positions
 
                     actions = new_actions
@@ -290,28 +298,38 @@ class LocalRunner(Runner):
                     values = new_values
                     timestep += 1
 
-                # every 128 steps do training
-                if timestep >= 129:
+                # every cfg.NUM_STEPS steps do training
+                if timestep >= (NUM_STEPS + 1):
 
                     # get the value for the last state and put it in the buffer
                     hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
-                    hinges_pos = torch.tensor([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    hinges_vel = torch.tensor([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    observations = torch.cat((hinges_pos.unsqueeze(0), hinges_vel.unsqueeze(0)), dim=0)
-                    _, next_values, _ = self._batch.control(0.2, control, observations)
+                    hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                   
+                    #observation normalization
+                    #hinges_pos = (hinges_pos - hinges_pos.mean(dim=0)) / (hinges_pos.std(dim=0) + 1e-8)
+                    #hinges_vel = (hinges_vel - hinges_vel.mean(dim=0)) / (hinges_vel.std(dim=0) + 1e-8)
+
+                    #observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
+                    #observations = np.expand_dims(hinges_pos, 0)
+                    observations = np.concatenate((hinges_pos, observations.squeeze()[:,:18]),axis=1)
+                    observations = np.expand_dims(observations, 0).astype(np.float32)
+
+                    control = ActorControl()
+                    _, next_values, _ = self._batch.control(control_step, control, torch.tensor(observations))
                     buffer.set_next_state_value(next_values)
 
-                    print(f"\nAverage cumulative reward after 128 steps: {np.mean(np.sum(sum_rewards, axis=1))}")
+                    print(f"\nAverage cumulative reward after {NUM_STEPS} steps: {np.mean(np.sum(sum_rewards, axis=0))}")
                     print(f"Average state value: {np.mean(mean_values)}")
-                    sum_rewards = np.zeros((128, self._num_agents))
-                    mean_values = np.zeros(128)
-                    buffer._compute_advantages()
+                    sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
+                    mean_values = np.zeros(NUM_STEPS)
 
                     # do training
                     self.controller.train(buffer)
 
                     timestep = 0
-                    buffer = Buffer((2,8),8, self._num_agents)
+                    self._set_initial_position()
+                    buffer = Buffer((1,6),6, self._num_agents)
 
 
                 # step simulation
@@ -322,17 +340,67 @@ class LocalRunner(Runner):
                 if self._viewer is not None:
                     self._gym.draw_viewer(self._viewer, self._sim, False)
 
+        def set_actor_dof_position_targets(
+            self,
+            env_handle: gymapi.Env,
+            actor_handle: int,
+            actor: Actor,
+            targets: List[float],
+        ) -> None:
+            if len(targets) != len(actor.joints):
+                raise RuntimeError("Need to set a target for every dof")
+
+            if not all(
+                [
+                    target >= -joint.range and target <= joint.range
+                    for target, joint in zip(
+                        targets,
+                        actor.joints,
+                    )
+                ]
+            ):
+                raise RuntimeError("Dof targets must lie within the joints range.")
+
+            self._gym.set_actor_dof_position_targets(
+                env_handle,
+                actor_handle,
+                targets,
+            )
+
+        def set_actor_dof_positions(
+            self,
+            env_handle: gymapi.Env,
+            actor_handle: int,
+            actor: Actor,
+            positions: List[float],
+        ) -> None:
+            num_dofs = len(actor.joints)
+
+            if len(positions) != num_dofs:
+                raise RuntimeError("Need to set a position for every dof")
+
+            if num_dofs != 0:  # isaac gym does not understand zero length arrays...
+                dof_states = np.zeros(num_dofs, dtype=gymapi.DofState.dtype)
+                dof_positions = dof_states["pos"]
+
+                for i in range(len(dof_positions)):
+                    dof_positions[i] = positions[i]
+                self._gym.set_actor_dof_states(
+                    env_handle, actor_handle, dof_states, gymapi.STATE_POS
+                )
+
+
 
         def cleanup(self) -> None:
             if self._viewer is not None:
                 self._gym.destroy_viewer(self._viewer)
             self._gym.destroy_sim(self._sim)
 
-        def _get_state(self) -> State:
+        def _get_state(self, time: float) -> RunnerState:
             """
             Get position and velocity of all the agents
             """
-            state = State([])
+            state = RunnerState(time, [])
             velocities = []
 
             for gymenv in self._gymenvs:
@@ -370,6 +438,36 @@ class LocalRunner(Runner):
             dx = state2.x - state1.x
             dy = state2.y - state1.y
             return dx + dy
+        
+        def _set_initial_position(self,):
+            control = ActorControl()
+            for control_i in range(self._num_agents):
+                #action = np.random.uniform(low=-1, high=1, size=6).astype(np.float32)
+                action = np.array([0, 0, 1, 1, 1, 1]).astype(np.float32)
+                control.set_dof_targets(control_i, 0, action)
+
+                for env_index, actor_index, targets in control._dof_targets:
+                    env_handle = self._gymenvs[env_index].env
+                    actor_handle = self._gymenvs[env_index].actors[actor_index]
+                    actor = (
+                        self._batch.environments[env_index]
+                        .actors[actor_index]
+                        .actor
+                    )
+
+                    self.set_actor_dof_position_targets(
+                        env_handle, actor_handle, actor, targets
+                    )           
+            
+            while (time := self._gym.get_sim_time(self._sim)) < 0.5:
+                # step simulation
+                self._gym.simulate(self._sim)
+                self._gym.fetch_results(self._sim, True)
+                self._gym.step_graphics(self._sim)
+
+                if self._viewer is not None:
+                    self._gym.draw_viewer(self._viewer, self._sim, False)
+
 
     _sim_params: gymapi.SimParams
     _headless: bool
@@ -394,7 +492,7 @@ class LocalRunner(Runner):
 
         return sim_params
 
-    async def run_batch(self, batch: Batch, controller, num_agents) -> List[Tuple[float, State]]:
+    async def run_batch(self, batch: Batch, controller, num_agents) -> List[RunnerState]:
         # sadly we must run Isaac Gym in a subprocess, because it has some big memory leaks.
         result_queue: mp.Queue = mp.Queue()  # type: ignore # TODO
         process = mp.Process(

@@ -13,18 +13,19 @@ class Actor(nn.Module):
             act_dim: number of actuators in output
         """
         super().__init__()
-        self.mean_layer = nn.Linear(obs_dim, act_dim)
-        #self.std_layer = nn.Parameter(torch.zeros(1, act_dim))
-        self.std_layer = nn.Linear(obs_dim, act_dim)
+        self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
+        self.mean_layer = nn.Linear(64, act_dim)
+        self.std_layer = nn.Parameter(torch.zeros(act_dim))
+        #self.std_layer = self.std_layer - 1
 
     def forward(self, obs):
-        mean = self.mean_layer(obs)
-        #std = torch.exp(self.std_layer)
-        std = torch.exp(self.std_layer(obs))
+        pi_obs = self.pi_encoder(obs)
+        mean = self.mean_layer(pi_obs)
+        std = torch.exp(self.std_layer)
         action_prob = Normal(mean, std)
-        action = action_prob.sample()
-        logp = action_prob.log_prob(action).sum(-1, keepdim=True)
-        return action, logp
+        #action = action_prob.sample()
+        #logp = action_prob.log_prob(action).sum(-1)
+        return action_prob
 
 class Critic(nn.Module):
     def __init__(self, obs_dim: int):
@@ -34,10 +35,12 @@ class Critic(nn.Module):
             obs_dim: dimension of the observation in input to the newtork
         """
         super().__init__()
-        self.critic_layer = nn.Linear(obs_dim,1)
+        self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
+        self.critic_layer = nn.Linear(64,1)
 
     def forward(self, obs):
-        return self.critic_layer(obs)
+        val_obs = self.val_encoder(obs)
+        return self.critic_layer(val_obs)
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_dim: List[int], act_dim: int):
@@ -47,17 +50,19 @@ class ActorCritic(nn.Module):
             act_dim: number of actuators in output
         """
         super().__init__()
-        self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
-        self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
-        self.actor = Actor(obs_dim=64, act_dim=act_dim)
-        self.critic = Critic(obs_dim=64)
+        self.actor = Actor(obs_dim=obs_dim, act_dim=act_dim)
+        self.critic = Critic(obs_dim=obs_dim)
     
-    def forward(self, obs):
-        val_obs = self.val_encoder(obs)
-        pi_obs = self.pi_encoder(obs)
-        action, logp = self.actor(pi_obs)
-        value = self.critic(val_obs)
-        return value, action, logp
+    def forward(self, obs, action=None):
+        action_prob = self.actor(obs)
+        value = self.critic(obs)
+        if action == None:
+            return action_prob, value, None, None
+        else:
+            action = action_prob.sample()
+            logp = action_prob.log_prob(action).sum(-1)
+            entropy = action_prob.entropy().mean()
+            return action_prob, value, logp, entropy
 
 class SingleObservationEncoder(nn.Module):
     def __init__(self, obs_dim: int):

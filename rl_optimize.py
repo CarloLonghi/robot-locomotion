@@ -1,4 +1,4 @@
-from ast import arguments
+from ast import Num, arguments
 import logging
 import argparse
 
@@ -10,6 +10,7 @@ from revolve2.core.optimization import ProcessIdGen
 from RL.rl_agent import make_agent
 from RL.rl_optimizer import RLOptimizer 
 from random import Random
+from RL.config import NUM_PARALLEL_AGENT
 
 async def main() -> None:
 
@@ -17,14 +18,19 @@ async def main() -> None:
     parser.add_argument(
         "--from_checkpoint",
         action="store_true",
-        help="Resumes training from past checkpoint if set.",
+        help="Resumes training from past checkpoint if True.",
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="visualize the simulation if True.",
     )
     args = parser.parse_args()
 
     LEARNING_INTERACTIONS = 5e6
     SAMPLING_FREQUENCY = 4
     CONTROL_FREQUENCY = 4
-    POPULATION_SIZE = 64
+    POPULATION_SIZE = NUM_PARALLEL_AGENT
     SIMULATION_TIME = int(LEARNING_INTERACTIONS / (CONTROL_FREQUENCY * POPULATION_SIZE))
 
     logging.basicConfig(
@@ -49,7 +55,8 @@ async def main() -> None:
         rng=rng,
         sampling_frequency=SAMPLING_FREQUENCY,
         control_frequency=CONTROL_FREQUENCY,
-        simulation_time=SIMULATION_TIME
+        simulation_time=SIMULATION_TIME,
+        visualize=args.visualize
     )
 
     # initialize agent population
