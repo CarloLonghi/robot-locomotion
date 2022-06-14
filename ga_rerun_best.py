@@ -10,7 +10,7 @@ from revolve2.runners.isaacgym import ModularRobotRerunner
 
 async def main() -> None:
 
-    db = open_async_database_sqlite("./databases/test_pop_2/")
+    db = open_async_database_sqlite("./GA/databases/test/")
     async with AsyncSession(db) as session:
         best_individual = (
             await session.execute(
