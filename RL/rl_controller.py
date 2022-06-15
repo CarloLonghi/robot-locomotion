@@ -37,8 +37,8 @@ class RLcontroller(ActorController):
         self._actor_critic = actor_critic
         actor_params = [p for p in self._actor_critic.actor.parameters() if p.requires_grad]
         critic_params = [p for p in self._actor_critic.critic.parameters() if p.requires_grad]
-        self.actor_optimizer = Adam(actor_params, lr=LR_ACTOR)
-        self.critic_optimizer = Adam(critic_params, lr=LR_CRITIC)
+        self.actor_optimizer = Adam(actor_params, lr=LR_ACTOR, eps=1e-5)
+        self.critic_optimizer = Adam(critic_params, lr=LR_CRITIC, eps=1e-5)
         #self.optimizer = Adam([p for p in self._actor_critic.parameters() if p.requires_grad])
         if from_checkpoint:
             checkpoint = torch.load("RL/model_states/last_checkpoint")
@@ -119,9 +119,9 @@ class RLcontroller(ActorController):
                 losses.append(loss.item())
 
                 # gradient clipping
-                #torch.nn.utils.clip_grad_norm_(
-                #    self._actor_critic.parameters(), 0.5
-                #)
+                torch.nn.utils.clip_grad_norm_(
+                    self._actor_critic.parameters(), 0.5
+                )
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
                 #self.optimizer.step()

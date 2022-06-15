@@ -232,7 +232,7 @@ class LocalRunner(Runner):
             mean_values = np.zeros(NUM_STEPS)
             
             self._set_initial_position()
-            observations = np.zeros((self._num_agents, 4*6))
+            new_observations = np.zeros((self._num_agents, 4*6))
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -245,42 +245,39 @@ class LocalRunner(Runner):
                     hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, 0, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
                     hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    #orientation = [new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)]
 
-                    #if timestep != 0:
-                        #observation normalization
-                        #hinges_pos = (hinges_pos - hinges_pos.mean(dim=0)) / (hinges_pos.std(dim=0) + 1e-8)
-                        #hinges_vel = (hinges_vel - hinges_vel.mean(dim=0)) / (hinges_vel.std(dim=0) + 1e-8)
-
-                    #observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
-                    #observations = np.expand_dims(hinges_pos, 0)
-                    observations = np.concatenate((hinges_pos, observations.squeeze()[:,:18]),axis=1)
-                    observations = np.expand_dims(observations, 0).astype(np.float32)
+                    #new_observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
+                    new_observations = np.expand_dims(hinges_pos, 0)
+                    #new_observations = np.concatenate((hinges_pos, new_observations.squeeze()[:,:18]),axis=1)
+                    #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
                     # get the action, value and logprob of the action for the current state
-                    new_actions, new_values, new_logps = self._batch.control(control_step, control, torch.tensor(observations))
-
-                    for (env_index, actor_index, targets) in control._dof_targets:
-                        env_handle = self._gymenvs[env_index].env
-                        actor_handle = self._gymenvs[env_index].actors[actor_index]
-                        actor = (
-                            self._batch.environments[env_index]
-                            .actors[actor_index]
-                            .actor
-                        )
-
-                        self.set_actor_dof_position_targets(
-                            env_handle, actor_handle, actor, targets
-                        )                        
+                    new_actions, new_values, new_logps = self._batch.control(control_step, control, torch.tensor(new_observations))
                     
-                    new_state, velocities = self._get_state(time)
+                    if timestep < NUM_STEPS:
+                        for (env_index, actor_index, targets) in control._dof_targets:
+                            env_handle = self._gymenvs[env_index].env
+                            actor_handle = self._gymenvs[env_index].actors[actor_index]
+                            actor = (
+                                self._batch.environments[env_index]
+                                .actors[actor_index]
+                                .actor
+                            )
+
+                            self.set_actor_dof_position_targets(
+                                env_handle, actor_handle, actor, targets
+                            )
+
+                    new_state, velocities = self._get_state(time)               
                     
                     if timestep > 0:
                         # get the new positions of each agent
                         new_positions = [new_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
                         # compute the rewards from the new and old positions of the agents
-                        #rewards = [self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)]                       
-                        rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
+                        rewards = [self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)]                       
+                        #rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
 
                         # insert data of the current state in the replay buffer
                         buffer.insert(obs=observations,
@@ -296,28 +293,13 @@ class LocalRunner(Runner):
                     actions = new_actions
                     logps = new_logps
                     values = new_values
+                    observations = new_observations
                     timestep += 1
 
                 # every cfg.NUM_STEPS steps do training
                 if timestep >= (NUM_STEPS + 1):
 
-                    # get the value for the last state and put it in the buffer
-                    hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, actor_handle,gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
-                    hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                   
-                    #observation normalization
-                    #hinges_pos = (hinges_pos - hinges_pos.mean(dim=0)) / (hinges_pos.std(dim=0) + 1e-8)
-                    #hinges_vel = (hinges_vel - hinges_vel.mean(dim=0)) / (hinges_vel.std(dim=0) + 1e-8)
-
-                    #observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
-                    #observations = np.expand_dims(hinges_pos, 0)
-                    observations = np.concatenate((hinges_pos, observations.squeeze()[:,:18]),axis=1)
-                    observations = np.expand_dims(observations, 0).astype(np.float32)
-
-                    control = ActorControl()
-                    _, next_values, _ = self._batch.control(control_step, control, torch.tensor(observations))
-                    buffer.set_next_state_value(next_values)
+                    buffer.set_next_state_value(values)
 
                     print(f"\nAverage cumulative reward after {NUM_STEPS} steps: {np.mean(np.sum(sum_rewards, axis=0))}")
                     print(f"Average state value: {np.mean(mean_values)}")
@@ -328,7 +310,7 @@ class LocalRunner(Runner):
                     self.controller.train(buffer)
 
                     timestep = 0
-                    self._set_initial_position()
+                    #self._set_initial_position()
                     buffer = Buffer((1,6),6, self._num_agents)
 
 
@@ -437,13 +419,13 @@ class LocalRunner(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return dx + dy
+            return math.sqrt(dx**2 + dy**2)
         
         def _set_initial_position(self,):
             control = ActorControl()
             for control_i in range(self._num_agents):
-                #action = np.random.uniform(low=-1, high=1, size=6).astype(np.float32)
-                action = np.array([0, 0, 1, 1, 1, 1]).astype(np.float32)
+                action = np.random.uniform(low=-1, high=1, size=6).astype(np.float32)
+                #action = np.array([0, 0, 1, 1, 1, 1]).astype(np.float32)
                 control.set_dof_targets(control_i, 0, action)
 
                 for env_index, actor_index, targets in control._dof_targets:
