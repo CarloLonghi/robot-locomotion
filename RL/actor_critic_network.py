@@ -2,6 +2,7 @@ from turtle import forward
 import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
+from torch.distributions.beta import Beta
 from typing import List
 
 class Actor(nn.Module):
@@ -14,17 +15,25 @@ class Actor(nn.Module):
         """
         super().__init__()
         self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
-        self.mean_layer = nn.Linear(64, act_dim)
-        self.std_layer = nn.Parameter(torch.zeros(act_dim))
+        #self.mean_layer = nn.Linear(64, act_dim)
+        #nn.init.orthogonal_(self.mean_layer.weight.data, gain=1)
+        #nn.init.constant_(self.mean_layer.bias.data, 0)
+        #self.std_layer = nn.Parameter(torch.zeros(act_dim))
         #self.std_layer = self.std_layer - 1
+        self.softplus = torch.nn.Softplus()
+        self.alpha_layer = nn.Linear(64, act_dim)
+        nn.init.constant_(self.alpha_layer.weight.data, 0)
+        self.beta_layer = nn.Linear(64, act_dim)
+        nn.init.constant_(self.beta_layer.weight.data, 0)
 
     def forward(self, obs):
         pi_obs = self.pi_encoder(obs)
-        mean = self.mean_layer(pi_obs)
-        std = torch.exp(self.std_layer)
-        action_prob = Normal(mean, std)
-        #action = action_prob.sample()
-        #logp = action_prob.log_prob(action).sum(-1)
+        #mean = self.mean_layer(pi_obs)
+        #std = torch.exp(self.std_layer)
+        #action_prob = Normal(mean, std)
+        alpha = self.softplus(self.alpha_layer(pi_obs)) + 1
+        beta = self.softplus(self.beta_layer(pi_obs)) + 1
+        action_prob = Beta(alpha, beta)
         return action_prob
 
 class Critic(nn.Module):
@@ -37,6 +46,8 @@ class Critic(nn.Module):
         super().__init__()
         self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
         self.critic_layer = nn.Linear(64,1)
+        #nn.init.orthogonal_(self.critic_layer.weight.data, gain=1)
+        #nn.init.constant_(self.critic_layer.bias.data, 0)
 
     def forward(self, obs):
         val_obs = self.val_encoder(obs)
@@ -77,7 +88,7 @@ class SingleObservationEncoder(nn.Module):
         self.encoder = nn.Sequential()
         for n, (dim_in, dim_out) in enumerate(zip(dims[:-1], dims[1:])):
             self.encoder.add_module(name=f"single_observation_encoder_{n}", module=nn.Linear(in_features=dim_in, out_features=dim_out))
-            self.encoder.add_module(name='tanh', module=nn.Tanh())
+            self.encoder.add_module(name=f'tanh_{n}', module=nn.Tanh())
 
     def forward(self, obs):
         return self.encoder(obs)
@@ -99,7 +110,7 @@ class ObservationEncoder(nn.Module):
         self.final_encoder = nn.Sequential()
         for n, (dim_in, dim_out) in enumerate(zip(dims[:-1], dims[1:])):
             self.final_encoder.add_module(name=f"final_observation_encoder_{n}", module=nn.Linear(in_features=dim_in, out_features=dim_out))
-            self.final_encoder.add_module(name='tanh', module=nn.Tanh())
+            self.final_encoder.add_module(name=f'tanh_{n}', module=nn.Tanh())
 
     def forward(self, observations):
         if len(observations.shape) > 2:

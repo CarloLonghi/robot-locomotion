@@ -74,8 +74,8 @@ class RLOptimizer():
         # for each agent in the simulation make a step
         for control_i in range(num_agents):
             action, value, logp = self._controller.get_dof_targets(observations[:,control_i,:])
-            control.set_dof_targets(control_i, 0, torch.clip(action, -1.0, 1.0))
-            #control.set_dof_targets(control_i, 0, np.array([1.0 for _ in action], dtype=np.float32))
+            #control.set_dof_targets(control_i, 0, torch.clip(action, -1.0, 1.0))
+            control.set_dof_targets(control_i, 0, (action*2 - 1))
             actions.append(action.tolist())
             values.append(value.tolist())
             logps.append(logp.tolist())
