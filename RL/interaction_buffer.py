@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data.sampler import BatchSampler
 from torch.utils.data.sampler import SubsetRandomSampler
-from .config import NUM_STEPS, BATCH_SIZE, NUM_OBS_TIMES
+from .config import NUM_STEPS, BATCH_SIZE, NUM_OBS_TIMES, PPO_GAMMA, PPO_LAMBDA
 
 class Buffer(object):
     """
@@ -52,13 +52,11 @@ class Buffer(object):
         """
         Compute the advantage function and the returns used to compute the loss
         """
-        gamma = 0.99
-        lam = 0.95
         adv = 0
         vals = torch.cat((self.values, self.next_state_value.unsqueeze(0)), dim=0)
         for t in range((NUM_STEPS -1), -1, -1):
-            delta = self.rewards[t] + gamma * vals[t+1] - vals[t]
-            adv = delta + (lam * gamma) * adv
+            delta = self.rewards[t] + PPO_GAMMA * vals[t+1] - vals[t]
+            adv = delta + (PPO_LAMBDA * PPO_GAMMA) * adv
             self.advantages[t] = adv
             self.returns[t] = adv + vals[t]
 
@@ -67,9 +65,10 @@ class Buffer(object):
         Normalize the rewards obtained
         """
         rewards = self.rewards.view(-1)
-        mean = rewards.mean(dim=0)
-        std = rewards.std()
-        self.rewards = (self.rewards - mean) / std
+        min = rewards.min()
+        self.rewards = self.rewards - min
+        max = rewards.max()
+        self.rewards = self.rewards / max
 
     def get_sampler(self,):
         """

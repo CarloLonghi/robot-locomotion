@@ -46,12 +46,13 @@ class Critic(nn.Module):
         super().__init__()
         self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
         self.critic_layer = nn.Linear(64,1)
-        #nn.init.orthogonal_(self.critic_layer.weight.data, gain=1)
-        #nn.init.constant_(self.critic_layer.bias.data, 0)
+        #nn.init.constant_(self.critic_layer.weight.data, 0)
+        #nn.init.normal_(self.critic_layer.bias.data)
+        self.softplus = torch.nn.Softplus()
 
     def forward(self, obs):
         val_obs = self.val_encoder(obs)
-        return self.critic_layer(val_obs)
+        return self.softplus(self.critic_layer(val_obs))
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_dim: List[int], act_dim: int):
