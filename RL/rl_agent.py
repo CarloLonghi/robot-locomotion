@@ -80,7 +80,7 @@ class Agent:
 
 
 def make_agent() -> Agent:
-    body = robot_zoo.make_gecko_body()
+    body = robot_zoo.make_ant_body()
     brain = None
 
     return Agent(body, brain)

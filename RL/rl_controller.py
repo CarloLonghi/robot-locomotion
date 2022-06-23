@@ -56,7 +56,7 @@ class RLcontroller(ActorController):
         Get the target position for the motors of the body
         """
         action_prob, value, _, _ = self._actor_critic(observation)
-        action = action_prob.sample()
+        action = torch.clip(action_prob.sample(), -0.7, 0.7)
         a, b, logp, _ = self._actor_critic(observation, action)
         return action, value, logp
     
@@ -76,7 +76,7 @@ class RLcontroller(ActorController):
         #lr_linear_decay(self.optimizer, self._iteration_num, 100, LR_CRITIC)
 
         self._iteration_num += 1
-        buffer._normalize_rewards()
+        #buffer._normalize_rewards()
         buffer._compute_advantages()
         for epoch in range(N_EPOCHS):
             batch_sampler = buffer.get_sampler()
@@ -102,9 +102,9 @@ class RLcontroller(ActorController):
                 # compute approximate kl distance between the new and old policy
                 with torch.no_grad():
                     approx_kl = (batch['logp_old'] - logp).mean().item()
-                    if approx_kl > PPO_CLIP_EPS:
-                        print(approx_kl)
-                        continue
+                    #if approx_kl > PPO_CLIP_EPS:
+                    #    print(approx_kl)
+                    #    continue
 
                 # compute ratio between new and old policy
                 ratio = torch.exp(logp - batch['logp_old'])

@@ -23,7 +23,7 @@ from revolve2.core.physics.actor import Actor
 import torch
 
 from RL.interaction_buffer import Buffer
-from .config import NUM_STEPS
+from .config import NUM_OBS_TIMES, NUM_STEPS
 
 
 class LocalRunner(Runner):
@@ -149,7 +149,7 @@ class LocalRunner(Runner):
                     # disabling self collision to both improve performance and improve stability
                     num_bodies = self._gym.get_asset_rigid_body_count(actor_asset)
                     num_shapes = self._gym.get_asset_rigid_shape_count(actor_asset)
-                    enable_self_collision = True
+                    enable_self_collision = False
                     self._gym.begin_aggregate(
                         env, num_bodies, num_shapes, enable_self_collision
                     )
@@ -227,12 +227,12 @@ class LocalRunner(Runner):
             old_state, velocities = self._get_state(0.0)
             old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer((1,6),6, self._num_agents)
+            buffer = Buffer((1,8),8, self._num_agents)
             sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
             mean_values = np.zeros(NUM_STEPS)
             
             self._set_initial_position()
-            new_observations = np.zeros((self._num_agents, 4*6))
+            new_observations = np.zeros((self._num_agents, 4*8))
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -248,9 +248,9 @@ class LocalRunner(Runner):
                     #orientation = [new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)]
 
                     #new_observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
-                    new_observations = np.expand_dims(hinges_pos, 0)
-                    #new_observations = np.concatenate((hinges_pos, new_observations.squeeze()[:,:18]),axis=1)
-                    #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
+                    #new_observations = np.expand_dims(hinges_pos, 0)
+                    new_observations = np.concatenate((hinges_pos, new_observations.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
+                    new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
                     # get the action, value and logprob of the action for the current state
                     new_actions, new_values, new_logps = self._batch.control(control_step, control, torch.tensor(new_observations))
@@ -301,7 +301,7 @@ class LocalRunner(Runner):
 
                     buffer.set_next_state_value(values)
 
-                    print(f"\nAverage cumulative reward after {NUM_STEPS} steps: {np.mean(np.sum(sum_rewards, axis=0))}")
+                    print(f"\nAverage cumulative reward after {NUM_STEPS} steps: {np.mean(np.mean(sum_rewards, axis=0))}")
                     print(f"Average state value: {np.mean(mean_values)}")
                     sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
                     mean_values = np.zeros(NUM_STEPS)
@@ -311,7 +311,7 @@ class LocalRunner(Runner):
 
                     timestep = 0
                     #self._set_initial_position()
-                    buffer = Buffer((1,6),6, self._num_agents)
+                    buffer = Buffer((1,8),8, self._num_agents)
 
 
                 # step simulation
@@ -392,7 +392,7 @@ class LocalRunner(Runner):
                         gymenv.env, actor_handle, gymapi.STATE_ALL
                     )
                     pose = states['pose']
-                    position = pose["p"][0]  # [0] is center of root element
+                    position = pose["p"][1]  # [0] is center of root element
                     velocity = states['vel']['linear'][0]
                     orientation = pose["r"][0]
                     env_state.actor_states.append(
@@ -424,7 +424,7 @@ class LocalRunner(Runner):
         def _set_initial_position(self,):
             control = ActorControl()
             for control_i in range(self._num_agents):
-                action = np.random.uniform(low=-1, high=1, size=6).astype(np.float32)
+                action = np.random.uniform(low=-1, high=1, size=8).astype(np.float32)
                 #action = np.array([0, 0, 1, 1, 1, 1]).astype(np.float32)
                 control.set_dof_targets(control_i, 0, action)
 
