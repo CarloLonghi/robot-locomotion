@@ -227,12 +227,13 @@ class LocalRunner(Runner):
             old_state, velocities = self._get_state(0.0)
             old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer((1,8),8, self._num_agents)
+            buffer = Buffer((8*NUM_OBS_TIMES,),8, self._num_agents)
             sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
             mean_values = np.zeros(NUM_STEPS)
             
             self._set_initial_position()
-            new_observations = np.zeros((self._num_agents, 4*8))
+            new_observations = {}
+            pos_sliding = np.zeros((self._num_agents, NUM_OBS_TIMES*8))
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -241,19 +242,24 @@ class LocalRunner(Runner):
                     last_control_time = math.floor(time / control_step) * control_step
                     control = ActorControl()
 
+                    new_state, velocities = self._get_state(time)
+
                     # get hinges current position and velocity
                     hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, 0, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
                     hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    #orientation = [new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)]
+                    orientation = np.array([new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)])
 
-                    #new_observations = np.stack((hinges_pos, hinges_vel), axis=0).tolist()
+                    #new_observations = np.stack((hinges_pos, orientation), axis=0).tolist()
                     #new_observations = np.expand_dims(hinges_pos, 0)
-                    new_observations = np.concatenate((hinges_pos, new_observations.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
-                    new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
+                    pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
+                    new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
+                    #new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
+                    #new_observations = np.concatenate((new_observations, orientation), axis=1)
+                    #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
                     # get the action, value and logprob of the action for the current state
-                    new_actions, new_values, new_logps = self._batch.control(control_step, control, torch.tensor(new_observations))
+                    new_actions, new_values, new_logps = self._batch.control(control_step, control, new_observations)
                     
                     if timestep < NUM_STEPS:
                         for (env_index, actor_index, targets) in control._dof_targets:
@@ -267,9 +273,7 @@ class LocalRunner(Runner):
 
                             self.set_actor_dof_position_targets(
                                 env_handle, actor_handle, actor, targets
-                            )
-
-                    new_state, velocities = self._get_state(time)               
+                            )               
                     
                     if timestep > 0:
                         # get the new positions of each agent
@@ -280,7 +284,7 @@ class LocalRunner(Runner):
                         #rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
 
                         # insert data of the current state in the replay buffer
-                        buffer.insert(obs=observations,
+                        buffer.insert(observation=observations,
                                         act=actions,
                                         logp=logps,
                                         val=values,
@@ -311,7 +315,7 @@ class LocalRunner(Runner):
 
                     timestep = 0
                     #self._set_initial_position()
-                    buffer = Buffer((1,8),8, self._num_agents)
+                    buffer = Buffer((8*NUM_OBS_TIMES,),8, self._num_agents)
 
 
                 # step simulation

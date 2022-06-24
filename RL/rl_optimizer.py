@@ -66,15 +66,18 @@ class RLOptimizer():
         self._runner = LocalRunner(LocalRunner.SimParams(), headless=(not self._visualize))
 
     def _control(self, dt: float, control: ActorControl, observations): # TODO what is td?
-        num_agents = len(observations[0])
+        num_agents = observations[0].shape[0]
         actions = []
         values = []
         logps = []
 
         # for each agent in the simulation make a step
         for control_i in range(num_agents):
-            action, value, logp = self._controller.get_dof_targets(observations[:,control_i,:])
-            control.set_dof_targets(control_i, 0, torch.clip(action, -0.7, 0.7))
+            agent_obs = {}
+            for obs in observations.keys():
+                agent_obs[obs] = observations[obs][control_i]
+            action, value, logp = self._controller.get_dof_targets(agent_obs)
+            control.set_dof_targets(control_i, 0, action)
             #control.set_dof_targets(control_i, 0, (action*2 - 1))
             actions.append(action.tolist())
             values.append(value.tolist())

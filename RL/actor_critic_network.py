@@ -105,6 +105,7 @@ class ObservationEncoder(nn.Module):
         """
         super().__init__()
         self.encoders = torch.nn.ModuleList()
+        self.obs_dim = obs_dim
         for obs_d in obs_dim:
             self.encoders.append(SingleObservationEncoder(obs_d))
 
@@ -116,14 +117,13 @@ class ObservationEncoder(nn.Module):
             self.final_encoder.add_module(name=f'tanh_{n}', module=nn.Tanh())
 
     def forward(self, observations):
-        if len(observations.shape) > 2:
-            encoded_observations = torch.zeros(observations.shape[1], observations.shape[0] * 64)
-            for i, obs in enumerate(observations):
-                encoded_observations[:,i * 64: i * 64 + 64] = self.encoders[i](obs)
+        if len(observations[0].shape) > 1:
+            encoded_observations = torch.zeros(observations[0].shape[0], len(self.obs_dim)*64)
+            for i, obs in enumerate(observations.keys()):
+                encoded_observations[:, i * 64: i * 64 + 64] = self.encoders[i](observations[obs])
         else:
-            encoded_observations = torch.zeros(observations.shape[0] * 64)
-            for i, obs in enumerate(observations):
-                encoded_observations[i * 64: i * 64 + 64] = self.encoders[i](obs)
+            encoded_observations = torch.zeros(len(self.obs_dim)*64)
+            for i, obs in enumerate(observations.keys()):
+                encoded_observations[i * 64: i * 64 + 64] = self.encoders[i](observations[obs])
 
         return self.final_encoder(encoded_observations)
-

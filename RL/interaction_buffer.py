@@ -10,7 +10,10 @@ class Buffer(object):
     Used to create batches of data to train the controller 
     """
     def __init__(self, obs_dim, act_dim, num_agents):
-        self.observations = torch.zeros(obs_dim[0],NUM_STEPS, num_agents, obs_dim[1]*NUM_OBS_TIMES)
+        self.observations = {}
+        for i, dim in enumerate(obs_dim):
+            self.observations[i] = torch.zeros(NUM_STEPS, num_agents, dim)
+
         self.actions = torch.zeros(NUM_STEPS, num_agents, act_dim)
         self.values = torch.zeros(NUM_STEPS, num_agents)
         self.rewards = torch.zeros(NUM_STEPS, num_agents)
@@ -24,7 +27,7 @@ class Buffer(object):
         self.act_dim = act_dim
         self.step = 0
 
-    def insert(self, obs, act, logp, val, rew):
+    def insert(self, observation, act, logp, val, rew):
         """
         Insert a new step in the replay buffer
         args:
@@ -34,7 +37,8 @@ class Buffer(object):
             val: value of the state
             rew: reward received for performing the action
         """
-        self.observations[:,self.step] = torch.tensor(obs)
+        for i, obs in enumerate(observation):
+            self.observations[i][self.step] = torch.tensor(obs)
         self.actions[self.step] = torch.tensor(act)
         self.values[self.step] = torch.tensor(val)[:,0]
         self.rewards[self.step] = torch.tensor(rew)
@@ -87,7 +91,9 @@ class Buffer(object):
 
         for idxs in sampler:
             batch = {}
-            batch['obs'] = self.observations.view(self.obs_dim[0], -1, self.obs_dim[1]*NUM_OBS_TIMES)[:,idxs]
+            batch['obs'] = {}
+            for i, obs in enumerate(self.observations.keys()):
+                batch['obs'][i] = self.observations[obs].view(-1, self.obs_dim[i])[idxs]
             batch['val'] = self.values.view(-1)[idxs]
             batch['act'] = self.actions.view(-1, self.act_dim)[idxs]
             batch['logp_old'] = self.logps.view(-1)[idxs]
