@@ -1,3 +1,4 @@
+import enum
 from turtle import forward
 import torch
 import torch.nn as nn
@@ -51,11 +52,11 @@ class Critic(nn.Module):
         self.critic_layer = nn.Linear(64,1)
         #nn.init.constant_(self.critic_layer.weight.data, 0)
         #nn.init.normal_(self.critic_layer.bias.data)
-        self.softplus = torch.nn.Softplus()
+        #self.softplus = torch.nn.Softplus()
 
     def forward(self, obs):
         val_obs = self.val_encoder(obs)
-        return self.softplus(self.critic_layer(val_obs))
+        return self.critic_layer(val_obs)
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_dim: List[int], act_dim: int):
@@ -118,12 +119,12 @@ class ObservationEncoder(nn.Module):
 
     def forward(self, observations):
         if len(observations[0].shape) > 1:
-            encoded_observations = torch.zeros(observations[0].shape[0], len(self.obs_dim)*64)
-            for i, obs in enumerate(observations.keys()):
-                encoded_observations[:, i * 64: i * 64 + 64] = self.encoders[i](observations[obs])
+            encoded_observations = torch.zeros(observations[0].shape[0], len(observations) * 64)
+            for i, obs in enumerate(observations):
+                encoded_observations[:,i * 64: i * 64 + 64] = self.encoders[i](obs)
         else:
-            encoded_observations = torch.zeros(len(self.obs_dim)*64)
-            for i, obs in enumerate(observations.keys()):
-                encoded_observations[i * 64: i * 64 + 64] = self.encoders[i](observations[obs])
+            encoded_observations = torch.zeros(len(observations) * 64)
+            for i, obs in enumerate(observations):
+                encoded_observations[i * 64: i * 64 + 64] = self.encoders[i](obs)
 
         return self.final_encoder(encoded_observations)

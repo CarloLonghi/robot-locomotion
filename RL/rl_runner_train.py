@@ -23,7 +23,7 @@ from revolve2.core.physics.actor import Actor
 import torch
 
 from RL.interaction_buffer import Buffer
-from .config import NUM_OBS_TIMES, NUM_STEPS
+from .config import NUM_OBS_TIMES, NUM_OBSERVATIONS, NUM_PARALLEL_AGENT, NUM_STEPS, OBS_DIM
 
 
 class LocalRunner(Runner):
@@ -227,13 +227,21 @@ class LocalRunner(Runner):
             old_state, velocities = self._get_state(0.0)
             old_positions = [old_state.envs[env_idx].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer((8*NUM_OBS_TIMES,),8, self._num_agents)
+            buffer = Buffer(OBS_DIM ,8, self._num_agents)
             sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
             mean_values = np.zeros(NUM_STEPS)
             
             self._set_initial_position()
-            new_observations = {}
+            new_observations = [[] for _ in range(NUM_OBSERVATIONS)]
             pos_sliding = np.zeros((self._num_agents, NUM_OBS_TIMES*8))
+
+            sum_orientation = 0
+            sum_velocity = 0
+            sum_position = 0
+            sum_orientation_sq = 0
+            sum_velocity_sq = 0
+            sum_position_sq = 0
+
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -244,17 +252,37 @@ class LocalRunner(Runner):
 
                     new_state, velocities = self._get_state(time)
 
-                    # get hinges current position and velocity
+                    # get hinges current position and velocity and head orientation
                     hinges_data = [self._gym.get_actor_dof_states(self._gymenvs[env_idx].env, 0, gymapi.STATE_ALL) for env_idx in range(self._num_agents)]
                     hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
-                    #hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
+                    hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     orientation = np.array([new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)])
+
+                    # observation normalization
+                    t = timestep + 1
+                    sum_orientation += np.sum(orientation)
+                    sum_velocity += np.sum(hinges_vel)
+                    sum_position += np.sum(hinges_pos)
+                    sum_orientation_sq += np.sum(orientation**2)
+                    sum_velocity_sq += np.sum(hinges_vel**2)
+                    sum_position_sq += np.sum(hinges_pos**2)
+                    mean_orientation = sum_orientation/(NUM_PARALLEL_AGENT * t)
+                    mean_velocity = sum_velocity/(NUM_PARALLEL_AGENT * t)
+                    mean_position = sum_position/(NUM_PARALLEL_AGENT * t)
+                    std_orientation = (sum_orientation_sq - (sum_orientation**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
+                    std_velocity = (sum_velocity_sq - (sum_velocity**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
+                    std_position = (sum_position_sq - (sum_position**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
+                    hinges_pos = (hinges_pos - mean_position) / std_position
+                    hinges_vel = (hinges_vel - mean_velocity) / std_velocity
+                    orientation = (orientation - mean_orientation) / std_orientation
+
 
                     #new_observations = np.stack((hinges_pos, orientation), axis=0).tolist()
                     #new_observations = np.expand_dims(hinges_pos, 0)
                     pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
-                    #new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
+                    new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
+                    new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
                     #new_observations = np.concatenate((new_observations, orientation), axis=1)
                     #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
@@ -284,7 +312,7 @@ class LocalRunner(Runner):
                         #rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
 
                         # insert data of the current state in the replay buffer
-                        buffer.insert(observation=observations,
+                        buffer.insert(obs=observations,
                                         act=actions,
                                         logp=logps,
                                         val=values,
@@ -315,7 +343,7 @@ class LocalRunner(Runner):
 
                     timestep = 0
                     #self._set_initial_position()
-                    buffer = Buffer((8*NUM_OBS_TIMES,),8, self._num_agents)
+                    buffer = Buffer(OBS_DIM, 8, self._num_agents)
 
 
                 # step simulation
@@ -396,7 +424,7 @@ class LocalRunner(Runner):
                         gymenv.env, actor_handle, gymapi.STATE_ALL
                     )
                     pose = states['pose']
-                    position = pose["p"][1]  # [0] is center of root element
+                    position = pose["p"][0]  # [0] is center of root element
                     velocity = states['vel']['linear'][0]
                     orientation = pose["r"][0]
                     env_state.actor_states.append(
@@ -423,7 +451,7 @@ class LocalRunner(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return math.sqrt(dx**2 + dy**2)
+            return (dx + dy)
         
         def _set_initial_position(self,):
             control = ActorControl()

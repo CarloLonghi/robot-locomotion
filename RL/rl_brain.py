@@ -13,7 +13,7 @@ from revolve2.actor_controller import ActorController
 from revolve2.core.modular_robot import ActiveHinge, Body, Brain
 from RL.rl_controller import RLcontroller
 from .actor_critic_network import Actor, ActorCritic
-from .config import NUM_OBS_TIMES
+from .config import NUM_OBS_TIMES, OBS_DIM
 
 
 class RLbrain(Brain, ABC):
@@ -30,7 +30,7 @@ class RLbrain(Brain, ABC):
         """
         active_hinges = body.find_active_hinges()
         num_hinges = len(active_hinges)
-        actor_critic = ActorCritic([num_hinges * NUM_OBS_TIMES, 4], num_hinges)
+        actor_critic = ActorCritic(OBS_DIM, num_hinges)
 
         return RLcontroller(
             actor_critic,

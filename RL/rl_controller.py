@@ -56,8 +56,8 @@ class RLcontroller(ActorController):
         Get the target position for the motors of the body
         """
         action_prob, value, _, _ = self._actor_critic(observation)
-        action = torch.clip(action_prob.sample(), -0.7, 0.7)
-        a, b, logp, _ = self._actor_critic(observation, action)
+        action = action_prob.sample()
+        _, _, logp, _ = self._actor_critic(observation, action)
         return action, value, logp
     
     def train(self, buffer: Buffer):

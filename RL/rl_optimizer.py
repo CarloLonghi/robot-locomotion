@@ -7,6 +7,7 @@ import numpy as np
 import sqlalchemy
 import torch
 from RL.actor_critic_network import ActorCritic
+from RL.config import NUM_OBSERVATIONS
 from RL.rl_brain import RLbrain
 from RL.rl_agent import Agent, develop
 from pyrr import Quaternion, Vector3
@@ -73,11 +74,11 @@ class RLOptimizer():
 
         # for each agent in the simulation make a step
         for control_i in range(num_agents):
-            agent_obs = {}
-            for obs in observations.keys():
-                agent_obs[obs] = observations[obs][control_i]
+            agent_obs = [[] for _ in range(NUM_OBSERVATIONS)]
+            for i, obs in enumerate(observations):
+                agent_obs[i] = obs[control_i]
             action, value, logp = self._controller.get_dof_targets(agent_obs)
-            control.set_dof_targets(control_i, 0, action)
+            control.set_dof_targets(control_i, 0, torch.clip(action, -0.7, 0.7))
             #control.set_dof_targets(control_i, 0, (action*2 - 1))
             actions.append(action.tolist())
             values.append(value.tolist())
