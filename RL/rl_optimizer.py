@@ -78,7 +78,7 @@ class RLOptimizer():
             for i, obs in enumerate(observations):
                 agent_obs[i] = obs[control_i]
             action, value, logp = self._controller.get_dof_targets(agent_obs)
-            control.set_dof_targets(control_i, 0, torch.clip(action, -0.7, 0.7))
+            control.set_dof_targets(control_i, 0, torch.clip(action, -0.8, 0.8))
             #control.set_dof_targets(control_i, 0, (action*2 - 1))
             actions.append(action.tolist())
             values.append(value.tolist())

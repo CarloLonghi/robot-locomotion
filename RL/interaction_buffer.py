@@ -39,7 +39,7 @@ class Buffer(object):
         """
         for i, observation in enumerate(obs):
             new_obs = self.observations[i]
-            new_obs[self.step] = torch.tensor(observation)
+            new_obs[self.step] = observation
             self.observations[i] = new_obs
         self.actions[self.step] = torch.tensor(act)
         self.values[self.step] = torch.tensor(val)[:,0]

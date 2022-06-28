@@ -272,9 +272,9 @@ class LocalRunner(Runner):
                     std_orientation = (sum_orientation_sq - (sum_orientation**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
                     std_velocity = (sum_velocity_sq - (sum_velocity**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
                     std_position = (sum_position_sq - (sum_position**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
-                    hinges_pos = (hinges_pos - mean_position) / std_position
+                    #hinges_pos = (hinges_pos - mean_position) / std_position
                     hinges_vel = (hinges_vel - mean_velocity) / std_velocity
-                    orientation = (orientation - mean_orientation) / std_orientation
+                    #orientation = (orientation - mean_orientation) / std_orientation
 
 
                     #new_observations = np.stack((hinges_pos, orientation), axis=0).tolist()
@@ -342,6 +342,12 @@ class LocalRunner(Runner):
                     self.controller.train(buffer)
 
                     timestep = 0
+                    sum_orientation = 0
+                    sum_velocity = 0
+                    sum_position = 0
+                    sum_orientation_sq = 0
+                    sum_velocity_sq = 0
+                    sum_position_sq = 0
                     #self._set_initial_position()
                     buffer = Buffer(OBS_DIM, 8, self._num_agents)
 
@@ -451,7 +457,7 @@ class LocalRunner(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return (dx + dy)
+            return math.sqrt(dx**2 + dy**2)
         
         def _set_initial_position(self,):
             control = ActorControl()
