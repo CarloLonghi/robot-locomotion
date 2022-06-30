@@ -259,6 +259,7 @@ class LocalRunner(Runner):
                     orientation = np.array([new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)])
 
                     # observation normalization
+                    """
                     t = timestep + 1
                     sum_orientation += np.sum(orientation)
                     sum_velocity += np.sum(hinges_vel)
@@ -275,14 +276,15 @@ class LocalRunner(Runner):
                     #hinges_pos = (hinges_pos - mean_position) / std_position
                     hinges_vel = (hinges_vel - mean_velocity) / std_velocity
                     #orientation = (orientation - mean_orientation) / std_orientation
+                    """
 
 
                     #new_observations = np.stack((hinges_pos, orientation), axis=0).tolist()
                     #new_observations = np.expand_dims(hinges_pos, 0)
                     pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
-                    new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
-                    new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
+                    #new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
+                    #new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
                     #new_observations = np.concatenate((new_observations, orientation), axis=1)
                     #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
@@ -320,12 +322,12 @@ class LocalRunner(Runner):
 
                         sum_rewards[timestep-1] = rewards
                         mean_values[timestep-1] = np.mean(values)
-                        old_positions = new_positions
+                        old_positions = new_positions.copy()
 
                     actions = new_actions
                     logps = new_logps
                     values = new_values
-                    observations = new_observations
+                    observations = new_observations.copy()
                     timestep += 1
 
                 # every cfg.NUM_STEPS steps do training

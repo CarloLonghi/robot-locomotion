@@ -57,7 +57,7 @@ class RLcontroller(ActorController):
         """
         action_prob, value, _, _ = self._actor_critic(observation)
         action = action_prob.sample()
-        _, _, logp, _ = self._actor_critic(observation, action)
+        logp = action_prob.log_prob(action).sum(-1)
         return action, value, logp
     
     def train(self, buffer: Buffer):

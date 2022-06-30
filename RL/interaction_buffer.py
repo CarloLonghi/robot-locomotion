@@ -38,9 +38,7 @@ class Buffer(object):
             rew: reward received for performing the action
         """
         for i, observation in enumerate(obs):
-            new_obs = self.observations[i]
-            new_obs[self.step] = observation
-            self.observations[i] = new_obs
+            self.observations[i][self.step] = observation
         self.actions[self.step] = torch.tensor(act)
         self.values[self.step] = torch.tensor(val)[:,0]
         self.rewards[self.step] = torch.tensor(rew)
