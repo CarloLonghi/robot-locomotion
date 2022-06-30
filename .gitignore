@@ -1,4 +1,5 @@
 __pycache__/
 databases/
 model_states/
+best_models/
 .vscode/

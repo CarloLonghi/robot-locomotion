@@ -283,8 +283,8 @@ class LocalRunner(Runner):
                     #new_observations = np.expand_dims(hinges_pos, 0)
                     pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
-                    #new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
-                    #new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
+                    new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
+                    new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
                     #new_observations = np.concatenate((new_observations, orientation), axis=1)
                     #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
@@ -459,7 +459,7 @@ class LocalRunner(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return math.sqrt(dx**2 + dy**2)
+            return dx
         
         def _set_initial_position(self,):
             control = ActorControl()
