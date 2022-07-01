@@ -44,13 +44,6 @@ async def main() -> None:
     rng = Random()
     rng.seed(42)
 
-    # database
-    database = open_async_database_sqlite("./RL/RLdatabases/test_1")
-
-    # process id generator
-    process_id_gen = ProcessIdGen()
-    process_id = process_id_gen.gen()
-
     optimizer = RLOptimizer(
         rng=rng,
         sampling_frequency=SAMPLING_FREQUENCY,

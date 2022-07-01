@@ -17,24 +17,13 @@ class Actor(nn.Module):
         super().__init__()
         self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
         self.mean_layer = nn.Linear(64, act_dim)
-        #nn.init.orthogonal_(self.mean_layer.weight.data, gain=1)
-        #nn.init.constant_(self.mean_layer.bias.data, 0)
         self.std_layer = nn.Parameter(torch.zeros(act_dim))
-        #self.std_layer = self.std_layer - 1
-        #self.softplus = torch.nn.Softplus()
-        #self.alpha_layer = nn.Linear(64, act_dim)
-        #nn.init.constant_(self.alpha_layer.weight.data, 0)
-        #self.beta_layer = nn.Linear(64, act_dim)
-        #nn.init.constant_(self.beta_layer.weight.data, 0)
 
     def forward(self, obs):
         pi_obs = self.pi_encoder(obs)
         mean = self.mean_layer(pi_obs)
         std = torch.exp(self.std_layer)
         action_prob = Normal(mean, std)
-        #alpha = self.softplus(self.alpha_layer(pi_obs)) + 1
-        #beta = self.softplus(self.beta_layer(pi_obs)) + 1
-        #action_prob = Beta(alpha, beta)
         return action_prob
 
 class Critic(nn.Module):
@@ -47,8 +36,6 @@ class Critic(nn.Module):
         super().__init__()
         self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
         self.critic_layer = nn.Linear(64,1)
-        #nn.init.constant_(self.critic_layer.weight.data, 0)
-        #nn.init.normal_(self.critic_layer.bias.data)
 
     def forward(self, obs):
         val_obs = self.val_encoder(obs)

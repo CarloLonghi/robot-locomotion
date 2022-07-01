@@ -31,7 +31,7 @@ from revolve2.core.physics.running import (
     PosedActor,
     Runner,
 )
-from RL.rl_runner_train import LocalRunner
+from RL.rl_runner_train import LocalRunnerTrain
 
 
 class RLOptimizer():
@@ -64,7 +64,7 @@ class RLOptimizer():
         self._control_frequency = control_frequency
 
     def _init_runner(self) -> None:
-        self._runner = LocalRunner(LocalRunner.SimParams(), headless=(not self._visualize))
+        self._runner = LocalRunnerTrain(LocalRunnerTrain.SimParams(), headless=(not self._visualize))
 
     def _control(self, dt: float, control: ActorControl, observations): # TODO what is td?
         num_agents = observations[0].shape[0]
@@ -79,7 +79,6 @@ class RLOptimizer():
                 agent_obs[i] = obs[control_i]
             action, value, logp = self._controller.get_dof_targets(agent_obs)
             control.set_dof_targets(control_i, 0, torch.clip(action, -0.8, 0.8))
-            #control.set_dof_targets(control_i, 0, (action*2 - 1))
             actions.append(action.tolist())
             values.append(value.tolist())
             logps.append(logp.tolist())
@@ -129,5 +128,4 @@ class RLOptimizer():
         # run the simulation
         await self._runner.run_batch(batch, self._controller, len(agents))
 
-        
         return 

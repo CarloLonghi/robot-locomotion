@@ -26,7 +26,7 @@ from RL.interaction_buffer import Buffer
 from .config import NUM_OBS_TIMES, NUM_OBSERVATIONS, NUM_PARALLEL_AGENT, NUM_STEPS, OBS_DIM
 
 
-class LocalRunner(Runner):
+class LocalRunnerTrain(Runner):
     class _Simulator:
         ENV_SIZE = 0.5
 
@@ -79,7 +79,7 @@ class LocalRunner(Runner):
             return sim
 
         def _create_envs(self) -> List[GymEnv]:
-            gymenvs: List[LocalRunner._Simulator.GymEnv] = []
+            gymenvs: List[LocalRunnerTrain._Simulator.GymEnv] = []
 
             # TODO this is only temporary. When we switch to the new isaac sim it should be easily possible to
             # let the user create static object, rendering the group plane redundant.
@@ -235,13 +235,6 @@ class LocalRunner(Runner):
             new_observations = [[] for _ in range(NUM_OBSERVATIONS)]
             pos_sliding = np.zeros((self._num_agents, NUM_OBS_TIMES*8))
 
-            sum_orientation = 0
-            sum_velocity = 0
-            sum_position = 0
-            sum_orientation_sq = 0
-            sum_velocity_sq = 0
-            sum_position_sq = 0
-
             while (
                 time := self._gym.get_sim_time(self._sim)
             ) < self._batch.simulation_time:
@@ -257,36 +250,11 @@ class LocalRunner(Runner):
                     hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     orientation = np.array([new_state.envs[env_idx].actor_states[0].orientation for env_idx in range(self._num_agents)])
-
-                    # observation normalization
-                    """
-                    t = timestep + 1
-                    sum_orientation += np.sum(orientation)
-                    sum_velocity += np.sum(hinges_vel)
-                    sum_position += np.sum(hinges_pos)
-                    sum_orientation_sq += np.sum(orientation**2)
-                    sum_velocity_sq += np.sum(hinges_vel**2)
-                    sum_position_sq += np.sum(hinges_pos**2)
-                    mean_orientation = sum_orientation/(NUM_PARALLEL_AGENT * t)
-                    mean_velocity = sum_velocity/(NUM_PARALLEL_AGENT * t)
-                    mean_position = sum_position/(NUM_PARALLEL_AGENT * t)
-                    std_orientation = (sum_orientation_sq - (sum_orientation**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
-                    std_velocity = (sum_velocity_sq - (sum_velocity**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
-                    std_position = (sum_position_sq - (sum_position**2)/(NUM_PARALLEL_AGENT*t))/(NUM_PARALLEL_AGENT*t)
-                    #hinges_pos = (hinges_pos - mean_position) / std_position
-                    hinges_vel = (hinges_vel - mean_velocity) / std_velocity
-                    #orientation = (orientation - mean_orientation) / std_orientation
-                    """
-
-
-                    #new_observations = np.stack((hinges_pos, orientation), axis=0).tolist()
-                    #new_observations = np.expand_dims(hinges_pos, 0)
                     pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
+                    
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
                     new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
                     new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
-                    #new_observations = np.concatenate((new_observations, orientation), axis=1)
-                    #new_observations = np.expand_dims(new_observations, 0).astype(np.float32)
 
                     # get the action, value and logprob of the action for the current state
                     new_actions, new_values, new_logps = self._batch.control(control_step, control, new_observations)
@@ -311,7 +279,6 @@ class LocalRunner(Runner):
 
                         # compute the rewards from the new and old positions of the agents
                         rewards = [self._calculate_velocity(old_positions[act_idx], new_positions[act_idx]) for act_idx in range(self._num_agents)]                       
-                        #rewards = torch.tensor([math.sqrt(vel[0]**2 + vel[1]**2) for vel in velocities])
 
                         # insert data of the current state in the replay buffer
                         buffer.insert(obs=observations,
@@ -330,7 +297,7 @@ class LocalRunner(Runner):
                     observations = new_observations.copy()
                     timestep += 1
 
-                # every cfg.NUM_STEPS steps do training
+                # after number of steps do training
                 if timestep >= (NUM_STEPS + 1):
 
                     buffer.set_next_state_value(values)
@@ -340,17 +307,9 @@ class LocalRunner(Runner):
                     sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
                     mean_values = np.zeros(NUM_STEPS)
 
-                    # do training
                     self.controller.train(buffer)
 
                     timestep = 0
-                    sum_orientation = 0
-                    sum_velocity = 0
-                    sum_position = 0
-                    sum_orientation_sq = 0
-                    sum_velocity_sq = 0
-                    sum_position_sq = 0
-                    #self._set_initial_position()
                     buffer = Buffer(OBS_DIM, 8, self._num_agents)
 
 
@@ -459,13 +418,12 @@ class LocalRunner(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return dx
+            return dx + dy
         
         def _set_initial_position(self,):
             control = ActorControl()
             for control_i in range(self._num_agents):
                 action = np.random.uniform(low=-1, high=1, size=8).astype(np.float32)
-                #action = np.array([0, 0, 1, 1, 1, 1]).astype(np.float32)
                 control.set_dof_targets(control_i, 0, action)
 
                 for env_index, actor_index, targets in control._dof_targets:

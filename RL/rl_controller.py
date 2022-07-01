@@ -66,83 +66,62 @@ class RLcontroller(ActorController):
         args:
             buffer: replay buffer containing the data for the last timesteps
         """
-        eps = PPO_CLIP_EPS # ratio clipping parameter
 
         print(f"\nITERATION NUM: {self._iteration_num + 1}")
 
         # learning rate decreases linearly
         lr_linear_decay(self.actor_optimizer, self._iteration_num, 100, LR_ACTOR)
         lr_linear_decay(self.critic_optimizer, self._iteration_num, 100, LR_CRITIC)
-        #lr_linear_decay(self.optimizer, self._iteration_num, 100, LR_CRITIC)
 
         self._iteration_num += 1
-        #buffer._normalize_rewards()
         buffer._compute_advantages()
+
         for epoch in range(N_EPOCHS):
             batch_sampler = buffer.get_sampler()
 
             ppo_losses = []
             val_losses = []
             losses = []
-            approx_kl = 0
             
             for batch in batch_sampler:
                 
-                # normalize advantages and compute returns
-                #batch['adv'] = (batch['adv'] - batch['adv'].min())
-                #batch['adv'] = batch['adv'] / (batch['adv'].max() + 1e-8)
-                #batch['ret'] = batch['adv'] + batch['val']
+                # normalize advantages and returns
                 batch['adv'] = (batch['adv'] - batch['adv'].mean()) / (batch['adv'].std() + 1e-8)
                 batch['ret'] = (batch['ret'] - batch['ret'].min())
                 batch['ret'] = batch['ret']  / (batch['ret'].max() + 1e-8)
 
-                # get value and new log probability for the observation
+                # get value entropy and new log probability for the observations
                 _, value, logp, entropy = self._actor_critic(batch['obs'], batch['act'])
 
-                # compute approximate kl distance between the new and old policy
-                with torch.no_grad():
-                    approx_kl = (batch['logp_old'] - logp).mean().item()
-                    #if approx_kl > PPO_CLIP_EPS:
-                    #    print(approx_kl)
-                    #    continue
-
-                # compute ratio between new and old policy
+                # compute ratio between new and old policy and losses
                 ratio = torch.exp(logp - batch['logp_old'])
                 obj1 = ratio * batch['adv']
-                obj2 = torch.clamp(ratio, 1.0 - eps, 1.0 + eps) * batch['adv'] # ratio clipping
-                print(f"Percentage of clipped ratios: {int((abs(ratio) - 1 > eps).sum() / ratio.shape[0] * 100)}%")
+                obj2 = torch.clamp(ratio, 1.0 - PPO_CLIP_EPS, 1.0 + PPO_CLIP_EPS) * batch['adv'] # ratio clipping
+                print(f"Percentage of clipped ratios: {int((abs(ratio) - 1 > PPO_CLIP_EPS).sum() / ratio.shape[0] * 100)}%")
                 ppo_loss = -torch.min(obj1, obj2).mean() # policy loss
                 val_loss = (batch['ret'] - value).pow(2).mean() # value loss
                 print(f"[CRITIC LOSS]: {val_loss:.10f}     [ACTOR LOSS]: {ppo_loss:.10f}      [ENTROPY]: {entropy:.10f}")
 
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
-                #self.optimizer.zero_grad()
                 loss = CRITIC_LOSS_COEFF * val_loss + ACTOR_LOSS_COEFF * ppo_loss - ENTROPY_COEFF * entropy
                 loss.backward()
                 ppo_losses.append(ppo_loss.item())
                 val_losses.append(val_loss.item())
                 losses.append(loss.item())
 
-                # gradient clipping
-                #torch.nn.utils.clip_grad_norm_(
-                #    self._actor_critic.parameters(), 0.5
-                #)
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
-                #self.optimizer.step()
 
             print(f"EPOCH {epoch + 1} loss ppo:  {np.mean(ppo_losses):.5f}, loss val: {np.mean(val_losses):.5f}, final loss: {np.mean(losses):.5f}")
             print()
         state = {
             'iteration': self._iteration_num,
             'model_state': self._actor_critic.state_dict(),
-            #'optimizer_state': self.optimizer.state_dict(),
             'actor_optimizer_state': self.actor_optimizer.state_dict(),
             'critic_optimizer_state': self.critic_optimizer.state_dict(),
         }
         torch.save(state, "RL/model_states/last_checkpoint")
-
 
 
     # TODO
