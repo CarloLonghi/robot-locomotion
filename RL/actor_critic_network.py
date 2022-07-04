@@ -16,7 +16,7 @@ class Actor(nn.Module):
         """
         super().__init__()
         self.pi_encoder = ObservationEncoder(obs_dim=obs_dim)
-        self.mean_layer = nn.Linear(64, act_dim)
+        self.mean_layer = nn.Linear(32, act_dim)
         self.std_layer = nn.Parameter(torch.zeros(act_dim))
 
     def forward(self, obs):
@@ -35,7 +35,7 @@ class Critic(nn.Module):
         """
         super().__init__()
         self.val_encoder = ObservationEncoder(obs_dim=obs_dim)
-        self.critic_layer = nn.Linear(64,1)
+        self.critic_layer = nn.Linear(32,1)
 
     def forward(self, obs):
         val_obs = self.val_encoder(obs)
@@ -70,7 +70,7 @@ class SingleObservationEncoder(nn.Module):
             obs_dim: dimension of the observation in input to the newtork
         """
         super().__init__()
-        dims = [obs_dim] + [64,64]
+        dims = [obs_dim] + [32]
         
         self.encoder = nn.Sequential()
         for n, (dim_in, dim_out) in enumerate(zip(dims[:-1], dims[1:])):
@@ -83,7 +83,7 @@ class SingleObservationEncoder(nn.Module):
 class ObservationEncoder(nn.Module):
     def __init__(self, obs_dim: List[int]):
         """
-        Full encoder: concatenate encoded observations and produce a 64-dim vector
+        Full encoder: concatenate encoded observations and produce a 32-dim vector
         args:
             obs_dim: a list of the dimensions of all the observations to encode
         """
@@ -93,7 +93,7 @@ class ObservationEncoder(nn.Module):
         for obs_d in obs_dim:
             self.encoders.append(SingleObservationEncoder(obs_d))
 
-        dims = [len(obs_dim) * 64] + [64,64]
+        dims = [len(obs_dim) * 32] + [32]
         
         self.final_encoder = nn.Sequential()
         for n, (dim_in, dim_out) in enumerate(zip(dims[:-1], dims[1:])):
@@ -102,12 +102,12 @@ class ObservationEncoder(nn.Module):
 
     def forward(self, observations):
         if len(observations[0].shape) > 1:
-            encoded_observations = torch.zeros(observations[0].shape[0], len(observations) * 64)
+            encoded_observations = torch.zeros(observations[0].shape[0], len(observations) * 32)
             for i, obs in enumerate(observations):
-                encoded_observations[:,i * 64: i * 64 + 64] = self.encoders[i](obs)
+                encoded_observations[:,i * 32: i * 32 + 32] = self.encoders[i](obs)
         else:
-            encoded_observations = torch.zeros(len(observations) * 64)
+            encoded_observations = torch.zeros(len(observations) * 32)
             for i, obs in enumerate(observations):
-                encoded_observations[i * 64: i * 64 + 64] = self.encoders[i](obs)
+                encoded_observations[i * 32: i * 32 + 32] = self.encoders[i](obs)
 
         return self.final_encoder(encoded_observations)

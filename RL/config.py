@@ -13,7 +13,7 @@ ENTROPY_COEFF = 0.01
 NUM_STEPS = 128
 
 # learning rates
-LR_ACTOR = 2e-3
+LR_ACTOR = 8e-4
 LR_CRITIC = 1e-3
 
 BATCH_SIZE = 2048
@@ -25,5 +25,5 @@ NUM_PARALLEL_AGENT = 64
 NUM_OBS_TIMES = 3
 
 # dimension of the different types of  observations
-OBS_DIM = (8*NUM_OBS_TIMES, 4, 8)
+OBS_DIM = (8*NUM_OBS_TIMES, 4)
 NUM_OBSERVATIONS = len(OBS_DIM)

@@ -90,14 +90,13 @@ class Buffer(object):
         )
 
         for idxs in sampler:
-            batch = {}
-            batch['obs'] = [[] for _ in range(NUM_OBSERVATIONS)]
-            for i, obs in enumerate(self.observations):
-                batch['obs'][i] = obs.view(-1, self.obs_dim[i])[idxs]
-            batch['val'] = self.values.view(-1)[idxs]
-            batch['act'] = self.actions.view(-1, self.act_dim)[idxs]
-            batch['logp_old'] = self.logps.view(-1)[idxs]
-            batch['rew'] = self.rewards.view(-1)[idxs]
-            batch['adv'] = self.advantages.view(-1)[idxs]
-            batch['ret'] = self.returns.view(-1)[idxs]
-            yield batch
+            obs = [[] for _ in range(NUM_OBSERVATIONS)]
+            for i, o in enumerate(self.observations):
+                obs[i] = o.view(-1, self.obs_dim[i])[idxs]
+            val = self.values.view(-1)[idxs]
+            act = self.actions.view(-1, self.act_dim)[idxs]
+            logp_old = self.logps.view(-1)[idxs]
+            rew = self.rewards.view(-1)[idxs]
+            adv = self.advantages.view(-1)[idxs]
+            ret = self.returns.view(-1)[idxs]
+            yield obs, val, act, logp_old, rew, adv, ret

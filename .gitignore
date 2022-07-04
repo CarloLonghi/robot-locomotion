@@ -3,3 +3,4 @@ databases/
 model_states/
 best_models/
 .vscode/
+statistics.csv

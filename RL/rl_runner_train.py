@@ -254,7 +254,7 @@ class LocalRunnerTrain(Runner):
                     
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
                     new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
-                    new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
+                    #new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
 
                     # get the action, value and logprob of the action for the current state
                     new_actions, new_values, new_logps = self._batch.control(control_step, control, new_observations)
@@ -391,7 +391,7 @@ class LocalRunnerTrain(Runner):
                         gymenv.env, actor_handle, gymapi.STATE_ALL
                     )
                     pose = states['pose']
-                    position = pose["p"][0]  # [0] is center of root element
+                    position = pose["p"][1]  # [0] is center of root element
                     velocity = states['vel']['linear'][0]
                     orientation = pose["r"][0]
                     env_state.actor_states.append(
@@ -418,7 +418,9 @@ class LocalRunnerTrain(Runner):
             """
             dx = state2.x - state1.x
             dy = state2.y - state1.y
-            return dx + dy
+            a = math.sqrt(state1.x**2 + state1.y**2)
+            b = math.sqrt(state2.x**2 + state2.y**2)
+            return b-a
         
         def _set_initial_position(self,):
             control = ActorControl()

@@ -241,7 +241,7 @@ class LocalRunner(Runner):
                     
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
                     new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
-                    new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
+                    #new_observations[2] = torch.tensor(hinges_vel, dtype=torch.float32)
 
 
                     self._batch.control(control_step, control, new_observations)

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from asyncore import write
+import csv
 
 from typing import List
 
@@ -50,6 +52,9 @@ class RLcontroller(ActorController):
         self._dof_ranges = dof_ranges
         #self.device = torch.device("cuda:0")
         #self._actor_critic.to(self.device)
+        with open('RL/model_states/statistics.csv', 'w', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['mean_rew','mean_val'])
 
     def get_dof_targets(self, observation) -> List[float]:
         """
@@ -83,23 +88,23 @@ class RLcontroller(ActorController):
             val_losses = []
             losses = []
             
-            for batch in batch_sampler:
+            for obs, val, act, logp_old, rew, adv, ret in batch_sampler:
                 
                 # normalize advantages and returns
-                batch['adv'] = (batch['adv'] - batch['adv'].mean()) / (batch['adv'].std() + 1e-8)
-                batch['ret'] = (batch['ret'] - batch['ret'].min())
-                batch['ret'] = batch['ret']  / (batch['ret'].max() + 1e-8)
+                adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+                ret = (ret - ret.min())
+                ret = ret  / (ret.max() + 1e-8)
 
                 # get value entropy and new log probability for the observations
-                _, value, logp, entropy = self._actor_critic(batch['obs'], batch['act'])
+                _, value, logp, entropy = self._actor_critic(obs, act)
 
                 # compute ratio between new and old policy and losses
-                ratio = torch.exp(logp - batch['logp_old'])
-                obj1 = ratio * batch['adv']
-                obj2 = torch.clamp(ratio, 1.0 - PPO_CLIP_EPS, 1.0 + PPO_CLIP_EPS) * batch['adv'] # ratio clipping
+                ratio = torch.exp(logp - logp_old)
+                obj1 = ratio * adv
+                obj2 = torch.clamp(ratio, 1.0 - PPO_CLIP_EPS, 1.0 + PPO_CLIP_EPS) * adv # ratio clipping
                 print(f"Percentage of clipped ratios: {int((abs(ratio) - 1 > PPO_CLIP_EPS).sum() / ratio.shape[0] * 100)}%")
                 ppo_loss = -torch.min(obj1, obj2).mean() # policy loss
-                val_loss = (batch['ret'] - value).pow(2).mean() # value loss
+                val_loss = (ret - value).pow(2).mean() # value loss
                 print(f"[CRITIC LOSS]: {val_loss:.10f}     [ACTOR LOSS]: {ppo_loss:.10f}      [ENTROPY]: {entropy:.10f}")
 
                 self.actor_optimizer.zero_grad()
@@ -122,6 +127,13 @@ class RLcontroller(ActorController):
             'critic_optimizer_state': self.critic_optimizer.state_dict(),
         }
         torch.save(state, "RL/model_states/last_checkpoint")
+
+        # log statistics
+        mean_rew = torch.mean(torch.mean(buffer.rewards, axis=0)).item()
+        mean_val = torch.mean(torch.mean(buffer.values, axis=0)).item()
+        with open('RL/model_states/statistics.csv', 'a', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([mean_rew, mean_val])
 
 
     # TODO
