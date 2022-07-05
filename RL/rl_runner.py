@@ -17,7 +17,8 @@ from revolve2.core.physics.running import (
     Batch,
     EnvironmentState,
     Runner,
-    RunnerState,
+    BatchResults,
+    EnvironmentResults,
 )
 import torch
 
@@ -35,6 +36,8 @@ class LocalRunner(Runner):
                 int
             ]  # actor handles, in same order as provided by environment description
 
+        _real_time: bool
+
         _gym: gymapi.Gym
         _batch: Batch
 
@@ -50,6 +53,7 @@ class LocalRunner(Runner):
             batch: Batch,
             sim_params: gymapi.SimParams,
             headless: bool,
+            real_time: bool,
         ):
             self._gym = gymapi.acquire_gym()
             self._batch = batch
@@ -61,6 +65,8 @@ class LocalRunner(Runner):
                 self._viewer = None
             else:
                 self._viewer = self._create_viewer()
+
+            self._real_time = real_time
 
             self._gym.prepare_sim(self._sim)
 
@@ -207,8 +213,8 @@ class LocalRunner(Runner):
 
             return viewer
 
-        def run(self) -> List[RunnerState]:
-            states: List[RunnerState] = []
+        def run(self) -> BatchResults:
+            results = BatchResults([EnvironmentResults([]) for _ in self._gymenvs])
 
             control_step = 1 / self._batch.control_frequency
             sample_step = 1 / self._batch.sampling_frequency
@@ -217,10 +223,9 @@ class LocalRunner(Runner):
             last_sample_time = 0.0
 
             # sample initial state
-            states.append(self._get_state(0.0))
+            self._append_states(results, 0.0)
             new_observations = [[] for _ in range(NUM_OBSERVATIONS)]
             pos_sliding = np.zeros(NUM_OBS_TIMES*8)
-
 
             while (
                 time := self._gym.get_sim_time(self._sim)
@@ -230,13 +235,13 @@ class LocalRunner(Runner):
                     last_control_time = math.floor(time / control_step) * control_step
                     control = ActorControl()
 
-                    new_state = self._get_state(time)
+                    self._append_states(results, time)
 
                     # get hinges current position and velocity and head orientation
                     hinges_data = self._gym.get_actor_dof_states(self._gymenvs[0].env, 0, gymapi.STATE_ALL)
                     hinges_pos = np.array([hinges_p[0] for hinges_p in hinges_data])
                     hinges_vel = np.array([hinges_p[1] for hinges_p in hinges_data])
-                    orientation = np.array(new_state.envs[0].actor_states[0].orientation)
+                    orientation = np.array(results.environment_results[0].environment_states[-1].actor_states[0].orientation)
                     pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:8*(NUM_OBS_TIMES - 1)]))
                     
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
@@ -262,20 +267,24 @@ class LocalRunner(Runner):
                 # sample state if it is time
                 if time >= last_sample_time + sample_step:
                     last_sample_time = int(time / sample_step) * sample_step
-                    states.append(self._get_state(time))
+                    self._append_states(results, time)
 
                 # step simulation
                 self._gym.simulate(self._sim)
                 self._gym.fetch_results(self._sim, True)
-                self._gym.step_graphics(self._sim)
 
                 if self._viewer is not None:
+                    self._gym.step_graphics(self._sim)
                     self._gym.draw_viewer(self._viewer, self._sim, False)
 
-            # sample one final time
-            states.append(self._get_state(time))
+                if self._real_time:
+                    self._gym.sync_frame_time(self._sim)
 
-            return states
+            # sample one final time
+            self._append_states(results, time)
+            pos = results.environment_results[0].environment_states[-1].actor_states[0].position
+            print(math.sqrt(pos.x**2 + pos.y**2))
+            return results
 
         def set_actor_dof_position_targets(
             self,
@@ -331,11 +340,11 @@ class LocalRunner(Runner):
                 self._gym.destroy_viewer(self._viewer)
             self._gym.destroy_sim(self._sim)
 
-        def _get_state(self, time: float) -> RunnerState:
-            state = RunnerState(time, [])
-
-            for gymenv in self._gymenvs:
-                env_state = EnvironmentState([])
+        def _append_states(self, batch_results: BatchResults, time: float):
+            for gymenv, environment_results in zip(
+                self._gymenvs, batch_results.environment_results
+            ):
+                env_state = EnvironmentState(time, [])
                 for actor_handle in gymenv.actors:
                     pose = self._gym.get_actor_rigid_body_states(
                         gymenv.env, actor_handle, gymapi.STATE_POS
@@ -355,16 +364,21 @@ class LocalRunner(Runner):
                             ),
                         )
                     )
-                state.envs.append(env_state)
-
-            return state
+                environment_results.environment_states.append(env_state)
 
     _sim_params: gymapi.SimParams
     _headless: bool
+    _real_time: bool
 
-    def __init__(self, sim_params: gymapi.SimParams, headless: bool = False):
+    def __init__(
+        self, 
+        sim_params: gymapi.SimParams, 
+        headless: bool = False,
+        real_time: bool = False,
+    ):
         self._sim_params = sim_params
         self._headless = headless
+        self._real_time = real_time
 
     @staticmethod
     def SimParams() -> gymapi.SimParams:
@@ -382,12 +396,18 @@ class LocalRunner(Runner):
 
         return sim_params
 
-    async def run_batch(self, batch: Batch) -> List[RunnerState]:
+    async def run_batch(self, batch: Batch) -> BatchResults:
         # sadly we must run Isaac Gym in a subprocess, because it has some big memory leaks.
         result_queue: mp.Queue = mp.Queue()  # type: ignore # TODO
         process = mp.Process(
             target=self._run_batch_impl,
-            args=(result_queue, batch, self._sim_params, self._headless),
+            args=(
+                result_queue, 
+                batch, 
+                self._sim_params, 
+                self._headless,
+                self._real_time,
+                ),
         )
         process.start()
         states = []
@@ -408,10 +428,11 @@ class LocalRunner(Runner):
         batch: Batch,
         sim_params: gymapi.SimParams,
         headless: bool,
+        real_time: bool,
     ) -> None:
-        _Simulator = cls._Simulator(batch, sim_params, headless)
-        states = _Simulator.run()
+        _Simulator = cls._Simulator(batch, sim_params, headless, real_time)
+        batch_results = _Simulator.run()
         _Simulator.cleanup()
-        for state in states:
-            result_queue.put(state)
+        for environment_results in batch_results.environment_results:
+            result_queue.put(environment_results)
         result_queue.put(None)

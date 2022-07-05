@@ -52,9 +52,7 @@ class RLcontroller(ActorController):
         self._dof_ranges = dof_ranges
         #self.device = torch.device("cuda:0")
         #self._actor_critic.to(self.device)
-        with open('RL/model_states/statistics.csv', 'w', encoding='UTF8', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['mean_rew','mean_val'])
+
 
     def get_dof_targets(self, observation) -> List[float]:
         """
@@ -89,7 +87,6 @@ class RLcontroller(ActorController):
             losses = []
             
             for obs, val, act, logp_old, rew, adv, ret in batch_sampler:
-                
                 # normalize advantages and returns
                 adv = (adv - adv.mean()) / (adv.std() + 1e-8)
                 ret = (ret - ret.min())

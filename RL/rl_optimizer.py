@@ -1,28 +1,14 @@
-import math
-import pickle
 from random import Random
-from typing import List, Tuple
-import numpy as np
+from typing import List
+import csv
 
-import sqlalchemy
 import torch
-from RL.actor_critic_network import ActorCritic
 from RL.config import NUM_OBSERVATIONS
 from RL.rl_brain import RLbrain
 from RL.rl_agent import Agent, develop
 from pyrr import Quaternion, Vector3
-from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.future import select
 
-import revolve2.core.optimization.ea.generic_ea.population_management as population_management
-import revolve2.core.optimization.ea.generic_ea.selection as selection
 from revolve2.actor_controller import ActorController
-from revolve2.core.database import IncompatibleError
-from revolve2.core.database.serializers import FloatSerializer
-from revolve2.core.optimization import ProcessIdGen
-from revolve2.core.optimization.ea.generic_ea import EAOptimizer
 from revolve2.core.physics.running import (
     ActorControl,
     ActorState,
@@ -91,6 +77,12 @@ class RLOptimizer():
             agents: list of agents to simulate
             from_checkpoint: if True resumes training from the last checkpoint
         """
+
+        # prepare file to log statistics
+        with open('RL/model_states/statistics.csv', 'w', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['mean_rew','mean_val'])
+
         batch = Batch(
             simulation_time=self._simulation_time,
             sampling_frequency=self._sampling_frequency,

@@ -21,7 +21,7 @@ class AgentRerunner:
 
     async def rerun(self,) -> None:
         batch = Batch(
-            simulation_time=60,
+            simulation_time=32,
             sampling_frequency=4,
             control_frequency=4,
             control=self._control,
