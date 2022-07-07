@@ -1,4 +1,9 @@
 
+# simulation parameters
+SAMPLING_FREQUENCY = 4
+CONTROL_FREQUENCY = 4
+SIMULATION_TIME = 50*32
+
 # PPO parameters
 PPO_CLIP_EPS = 0.2
 PPO_LAMBDA = 0.95
@@ -25,5 +30,4 @@ NUM_PARALLEL_AGENT = 64
 NUM_OBS_TIMES = 3
 
 # dimension of the different types of  observations
-OBS_DIM = (8*NUM_OBS_TIMES, 4)
-NUM_OBSERVATIONS = len(OBS_DIM)
+NUM_OBSERVATIONS = 2

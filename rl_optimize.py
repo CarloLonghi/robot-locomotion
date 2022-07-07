@@ -10,7 +10,7 @@ from revolve2.core.optimization import ProcessIdGen
 from RL.rl_agent import make_agent
 from RL.rl_optimizer import RLOptimizer 
 from random import Random
-from RL.config import NUM_PARALLEL_AGENT
+from RL.config import NUM_PARALLEL_AGENT, SAMPLING_FREQUENCY, CONTROL_FREQUENCY, SIMULATION_TIME
 
 async def main() -> None:
 
@@ -28,11 +28,7 @@ async def main() -> None:
     args = parser.parse_args()
 
     LEARNING_INTERACTIONS = 5e6
-    SAMPLING_FREQUENCY = 4
-    CONTROL_FREQUENCY = 4
-    POPULATION_SIZE = NUM_PARALLEL_AGENT
     #SIMULATION_TIME = int(LEARNING_INTERACTIONS / (CONTROL_FREQUENCY * POPULATION_SIZE))
-    SIMULATION_TIME = 100*32
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -50,15 +46,16 @@ async def main() -> None:
         sampling_frequency=SAMPLING_FREQUENCY,
         control_frequency=CONTROL_FREQUENCY,
         simulation_time=SIMULATION_TIME,
-        visualize=args.visualize
+        visualize=args.visualize,
+        num_agents=NUM_PARALLEL_AGENT
     )
 
     # initialize agent population
-    agents = [make_agent() for _ in range(POPULATION_SIZE)]
-    
+    agent = make_agent()
+
     logging.info("Starting learning process..")
 
-    await optimizer.train(agents, from_checkpoint=args.from_checkpoint)
+    await optimizer.train(agent, from_checkpoint=args.from_checkpoint)
 
     logging.info(f"Finished learning.")
 

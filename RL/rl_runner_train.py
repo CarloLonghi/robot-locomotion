@@ -24,7 +24,7 @@ from revolve2.core.physics.actor import Actor
 import torch
 
 from RL.interaction_buffer import Buffer
-from .config import NUM_OBS_TIMES, NUM_OBSERVATIONS, NUM_PARALLEL_AGENT, NUM_STEPS, OBS_DIM
+from .config import NUM_OBS_TIMES, NUM_OBSERVATIONS, NUM_PARALLEL_AGENT, NUM_STEPS
 
 
 class LocalRunnerTrain(Runner):
@@ -223,6 +223,7 @@ class LocalRunnerTrain(Runner):
 
         def run(self) -> BatchResults:
             results = BatchResults([EnvironmentResults([]) for _ in self._gymenvs])
+            num_joints =  len(self._batch.environments[0].actors[0].actor.joints)
 
             control_step = 1 / self._batch.control_frequency
             timestep = 0
@@ -233,13 +234,13 @@ class LocalRunnerTrain(Runner):
             self._append_states(results, 0.0)
             old_positions = [results.environment_results[env_idx].environment_states[0].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer(OBS_DIM ,8, self._num_agents)
+            buffer = Buffer((num_joints*NUM_OBS_TIMES, 4), num_joints, self._num_agents)
             sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
             mean_values = np.zeros(NUM_STEPS)
             
             self._set_initial_position()
             new_observations = [[] for _ in range(NUM_OBSERVATIONS)]
-            pos_sliding = np.zeros((self._num_agents, NUM_OBS_TIMES*8))
+            pos_sliding = np.zeros((self._num_agents, NUM_OBS_TIMES*num_joints))
 
             while (
                 time := self._gym.get_sim_time(self._sim)
@@ -256,7 +257,7 @@ class LocalRunnerTrain(Runner):
                     hinges_pos = np.array([[hinges_p[0] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     hinges_vel = np.array([[hinges_p[1] for hinges_p in hinges_d] for hinges_d in hinges_data])
                     orientation = np.array([results.environment_results[env_idx].environment_states[-1].actor_states[0].orientation for env_idx in range(self._num_agents)])
-                    pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:,:8*(NUM_OBS_TIMES - 1)]),axis=1)
+                    pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:, :num_joints*(NUM_OBS_TIMES - 1)]),axis=1)
                     
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
                     new_observations[1] = torch.tensor(orientation, dtype=torch.float32)
@@ -316,7 +317,7 @@ class LocalRunnerTrain(Runner):
                     self.controller.train(buffer)
 
                     timestep = 0
-                    buffer = Buffer(OBS_DIM, 8, self._num_agents)
+                    buffer = Buffer((num_joints*NUM_OBS_TIMES, 4), num_joints, self._num_agents)
 
 
                 # step simulation
@@ -424,8 +425,9 @@ class LocalRunnerTrain(Runner):
         
         def _set_initial_position(self,):
             control = ActorControl()
+            num_joints =  len(self._batch.environments[0].actors[0].actor.joints)
             for control_i in range(self._num_agents):
-                action = np.random.uniform(low=-1, high=1, size=8).astype(np.float32)
+                action = np.random.uniform(low=-1, high=1, size=num_joints).astype(np.float32)
                 control.set_dof_targets(control_i, 0, action)
 
                 for env_index, actor_index, targets in control._dof_targets:

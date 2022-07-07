@@ -39,7 +39,7 @@ class AgentRerunner:
                 actor,
                 Vector3([0.0, 0.0, bounding_box.size.z / 2.0 - bounding_box.offset.z,]),
                 Quaternion(),
-                [0.0 for _ in range(8)],
+                [0.0 for _ in range(len(actor.joints))],
             )
         )
         batch.environments.append(env)

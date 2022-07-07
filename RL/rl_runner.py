@@ -215,6 +215,7 @@ class LocalRunner(Runner):
 
         def run(self) -> BatchResults:
             results = BatchResults([EnvironmentResults([]) for _ in self._gymenvs])
+            num_joints =  len(self._batch.environments[0].actors[0].actor.joints)
 
             control_step = 1 / self._batch.control_frequency
             sample_step = 1 / self._batch.sampling_frequency
@@ -225,7 +226,7 @@ class LocalRunner(Runner):
             # sample initial state
             self._append_states(results, 0.0)
             new_observations = [[] for _ in range(NUM_OBSERVATIONS)]
-            pos_sliding = np.zeros(NUM_OBS_TIMES*8)
+            pos_sliding = np.zeros(NUM_OBS_TIMES*num_joints)
 
             while (
                 time := self._gym.get_sim_time(self._sim)
@@ -242,7 +243,7 @@ class LocalRunner(Runner):
                     hinges_pos = np.array([hinges_p[0] for hinges_p in hinges_data])
                     hinges_vel = np.array([hinges_p[1] for hinges_p in hinges_data])
                     orientation = np.array(results.environment_results[0].environment_states[-1].actor_states[0].orientation)
-                    pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:8*(NUM_OBS_TIMES - 1)]))
+                    pos_sliding = np.concatenate((hinges_pos, pos_sliding.squeeze()[:num_joints*(NUM_OBS_TIMES - 1)]))
                     
                     new_observations[0] = torch.tensor(pos_sliding, dtype=torch.float32)
                     new_observations[1] = torch.tensor(orientation, dtype=torch.float32)

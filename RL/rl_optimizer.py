@@ -32,6 +32,7 @@ class RLOptimizer():
     _sampling_frequency: float
     _control_frequency: float
     _visualize: bool
+    _num_agents: int
 
     def __init__(
         self,
@@ -40,6 +41,7 @@ class RLOptimizer():
         sampling_frequency: float,
         control_frequency: float,
         visualize: bool,
+        num_agents: int,
     ) -> None:
         
         self._visualize = visualize
@@ -48,6 +50,7 @@ class RLOptimizer():
         self._simulation_time = simulation_time
         self._sampling_frequency = sampling_frequency
         self._control_frequency = control_frequency
+        self._num_agents = num_agents
 
     def _init_runner(self) -> None:
         self._runner = LocalRunnerTrain(LocalRunnerTrain.SimParams(), headless=(not self._visualize))
@@ -70,7 +73,7 @@ class RLOptimizer():
             logps.append(logp.tolist())
         return actions, values, logps
 
-    async def train(self, agents: List[Agent], from_checkpoint: bool = False):
+    async def train(self, agent, from_checkpoint: bool = False):
         """
         Create the agents, insert them in the simulation and run it
         args:
@@ -90,16 +93,15 @@ class RLOptimizer():
             control=self._control,
         )
 
-        # we create only one brain as it is shared across all the agents
+        # all parallel agents share the same brain
         brain = RLbrain(from_checkpoint=from_checkpoint)
 
         # insert agents in the simulation environment
-        for agent_idx, agent in enumerate(agents):
-            agent.brain = brain
-            actor, controller = develop(agent).make_actor_and_controller()
-            if agent_idx == 0:
-                self._controller = controller
-            bounding_box = actor.calc_aabb()
+        agent.brain = brain
+        actor, controller = develop(agent).make_actor_and_controller()
+        self._controller = controller
+        bounding_box = actor.calc_aabb()
+        for _ in range(self._num_agents):
             env = Environment()
             env.actors.append(
                 PosedActor(
@@ -112,12 +114,12 @@ class RLOptimizer():
                         ]
                     ),
                     Quaternion(),
-                    [0.0 for _ in range(8)]
+                    [0.0 for _ in range(len(actor.joints))]
                 )
             )
             batch.environments.append(env)
         
         # run the simulation
-        await self._runner.run_batch(batch, self._controller, len(agents))
+        await self._runner.run_batch(batch, self._controller, self._num_agents)
 
         return 
