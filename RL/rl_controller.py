@@ -14,7 +14,7 @@ from revolve2.serialization import SerializeError, StaticData
 
 from RL.interaction_buffer import Buffer
 from .actor_critic_network import Actor, ActorCritic, Critic, ObservationEncoder
-from .config import LR_ACTOR, LR_CRITIC, PPO_CLIP_EPS, LR_ACTOR, LR_CRITIC, N_EPOCHS, CRITIC_LOSS_COEFF, ENTROPY_COEFF, ACTOR_LOSS_COEFF
+from .config import LR_ACTOR, LR_CRITIC, PPO_CLIP_EPS, NUM_ITERATIONS, LR_ACTOR, LR_CRITIC, N_EPOCHS, CRITIC_LOSS_COEFF, ENTROPY_COEFF, ACTOR_LOSS_COEFF
 
 from torchsummary import summary
 
@@ -40,8 +40,8 @@ class RLcontroller(ActorController):
         self._actor_critic = actor_critic
         actor_params = [p for p in self._actor_critic.actor.parameters() if p.requires_grad]
         critic_params = [p for p in self._actor_critic.critic.parameters() if p.requires_grad]
-        self.actor_optimizer = Adam(actor_params, lr=LR_ACTOR, eps=1e-5)
-        self.critic_optimizer = Adam(critic_params, lr=LR_CRITIC, eps=1e-5)
+        self.actor_optimizer = Adam(actor_params, lr=LR_ACTOR)
+        self.critic_optimizer = Adam(critic_params, lr=LR_CRITIC)
         #self.optimizer = Adam([p for p in self._actor_critic.parameters() if p.requires_grad])
         if from_checkpoint:
             checkpoint = torch.load("RL/model_states/last_checkpoint")
@@ -50,7 +50,7 @@ class RLcontroller(ActorController):
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state'])
         self._dof_ranges = dof_ranges
-        #self.device = torch.device("cuda:0")
+        self.device = torch.device("cuda:0")
         #self._actor_critic.to(self.device)
 
 
@@ -73,8 +73,8 @@ class RLcontroller(ActorController):
         print(f"\nITERATION NUM: {self._iteration_num + 1}")
 
         # learning rate decreases linearly
-        lr_linear_decay(self.actor_optimizer, self._iteration_num, 100, LR_ACTOR)
-        lr_linear_decay(self.critic_optimizer, self._iteration_num, 100, LR_CRITIC)
+        lr_linear_decay(self.actor_optimizer, self._iteration_num, NUM_ITERATIONS, LR_ACTOR)
+        lr_linear_decay(self.critic_optimizer, self._iteration_num, NUM_ITERATIONS, LR_CRITIC)
 
         self._iteration_num += 1
         buffer._compute_advantages()
@@ -84,7 +84,6 @@ class RLcontroller(ActorController):
 
             ppo_losses = []
             val_losses = []
-            losses = []
             
             for obs, val, act, logp_old, rew, adv, ret in batch_sampler:
                 # normalize advantages and returns
@@ -102,20 +101,21 @@ class RLcontroller(ActorController):
                 print(f"Percentage of clipped ratios: {int((abs(ratio) - 1 > PPO_CLIP_EPS).sum() / ratio.shape[0] * 100)}%")
                 ppo_loss = -torch.min(obj1, obj2).mean() # policy loss
                 val_loss = (ret - value).pow(2).mean() # value loss
-                print(f"[CRITIC LOSS]: {val_loss:.10f}     [ACTOR LOSS]: {ppo_loss:.10f}      [ENTROPY]: {entropy:.10f}")
+                #print(f"[CRITIC LOSS]: {val_loss:.10f}     [ACTOR LOSS]: {ppo_loss:.10f}      [ENTROPY]: {entropy:.10f}")
 
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
-                loss = CRITIC_LOSS_COEFF * val_loss + ACTOR_LOSS_COEFF * ppo_loss - ENTROPY_COEFF * entropy
-                loss.backward()
+                ppo_loss = ACTOR_LOSS_COEFF * ppo_loss - ENTROPY_COEFF * entropy
+                ppo_loss.backward()
+                val_loss.backward()
                 ppo_losses.append(ppo_loss.item())
                 val_losses.append(val_loss.item())
-                losses.append(loss.item())
+                #losses.append(loss.item())
 
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
 
-            print(f"EPOCH {epoch + 1} loss ppo:  {np.mean(ppo_losses):.5f}, loss val: {np.mean(val_losses):.5f}, final loss: {np.mean(losses):.5f}")
+            print(f"EPOCH {epoch + 1} loss ppo:  {np.mean(ppo_losses):.5f}, loss val: {np.mean(val_losses):.5f}")
             print()
         state = {
             'iteration': self._iteration_num,

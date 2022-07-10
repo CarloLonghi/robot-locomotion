@@ -224,6 +224,7 @@ class LocalRunnerTrain(Runner):
         def run(self) -> BatchResults:
             results = BatchResults([EnvironmentResults([]) for _ in self._gymenvs])
             num_joints =  len(self._batch.environments[0].actors[0].actor.joints)
+            obs_dims = (num_joints*NUM_OBS_TIMES, 4)
 
             control_step = 1 / self._batch.control_frequency
             timestep = 0
@@ -234,7 +235,7 @@ class LocalRunnerTrain(Runner):
             self._append_states(results, 0.0)
             old_positions = [results.environment_results[env_idx].environment_states[0].actor_states[0].position for env_idx in range(self._num_agents)]
 
-            buffer = Buffer((num_joints*NUM_OBS_TIMES, 4), num_joints, self._num_agents)
+            buffer = Buffer(obs_dims, num_joints, self._num_agents)
             sum_rewards = np.zeros((NUM_STEPS, self._num_agents))
             mean_values = np.zeros(NUM_STEPS)
             
@@ -317,7 +318,7 @@ class LocalRunnerTrain(Runner):
                     self.controller.train(buffer)
 
                     timestep = 0
-                    buffer = Buffer((num_joints*NUM_OBS_TIMES, 4), num_joints, self._num_agents)
+                    buffer = Buffer(obs_dims, num_joints, self._num_agents)
 
 
                 # step simulation
@@ -330,6 +331,8 @@ class LocalRunnerTrain(Runner):
 
                 if self._real_time:
                     self._gym.sync_frame_time(self._sim)
+
+            return results
 
         def set_actor_dof_position_targets(
             self,
@@ -417,11 +420,9 @@ class LocalRunnerTrain(Runner):
             """
             Calculate the velocity for all agents at a timestep
             """
-            dx = state2.x - state1.x
-            dy = state2.y - state1.y
-            a = math.sqrt(state1.x**2 + state1.y**2)
-            b = math.sqrt(state2.x**2 + state2.y**2)
-            return b-a
+            old_d = math.sqrt(state1.x**2 + state1.y**2)
+            new_d = math.sqrt(state2.x**2 + state2.y**2)
+            return new_d-old_d
         
         def _set_initial_position(self,):
             control = ActorControl()
