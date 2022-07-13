@@ -48,8 +48,7 @@ class AgentRerunner:
         await runner.run_batch(batch)
 
     def _control(self, dt: float, control: ActorControl, observations) -> None:
-        agent_obs = [[] for _ in range(NUM_OBSERVATIONS)]
-        action, value, logp = self._controller.get_dof_targets(observations)
+        action, _, _ = self._controller.get_dof_targets(observations)
         control.set_dof_targets(0, 0, torch.clip(action, -0.8, 0.8))
 
 

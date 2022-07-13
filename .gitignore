@@ -4,3 +4,5 @@ model_states/
 best_models/
 .vscode/
 statistics.csv
+plots.py
+plots/

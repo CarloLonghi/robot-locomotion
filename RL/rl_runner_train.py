@@ -98,21 +98,7 @@ class LocalRunnerTrain(Runner):
             plane_params.static_friction = 1.0
             plane_params.dynamic_friction = 1.0
             plane_params.restitution = 0
-
-            subterrain = SubTerrain(width=100, length=100, vertical_scale=0.005, horizontal_scale=0.25)
-            heightfield = random_uniform_terrain(subterrain, min_height=-0.1, max_height=0.1, step=0.2, downsampled_scale=0.5).height_field_raw
-            vertices, triangles = convert_heightfield_to_trimesh(heightfield, horizontal_scale=0.25, vertical_scale=0.005, slope_threshold=1.5)
-            tm_params = gymapi.TriangleMeshParams()
-            tm_params.nb_vertices = vertices.shape[0]
-            tm_params.nb_triangles = triangles.shape[0]
-            tm_params.transform.p.x = -10.
-            tm_params.transform.p.y = -10.
-            tm_params.static_friction = 1.0
-            tm_params.dynamic_friction = 1.0
-            tm_params.restitution = 0
-            self._gym.add_triangle_mesh(self._sim, vertices.flatten(), triangles.flatten(), tm_params)
-
-            #self._gym.add_ground(self._sim, plane_params)
+            self._gym.add_ground(self._sim, plane_params)
 
             num_per_row = int(math.sqrt(len(self._batch.environments)))
 

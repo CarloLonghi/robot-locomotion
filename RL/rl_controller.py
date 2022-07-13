@@ -50,9 +50,6 @@ class RLcontroller(ActorController):
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state'])
         self._dof_ranges = dof_ranges
-        self.device = torch.device("cuda:0")
-        #self._actor_critic.to(self.device)
-
 
     def get_dof_targets(self, observation) -> List[float]:
         """
@@ -100,17 +97,16 @@ class RLcontroller(ActorController):
                 obj2 = torch.clamp(ratio, 1.0 - PPO_CLIP_EPS, 1.0 + PPO_CLIP_EPS) * adv # ratio clipping
                 print(f"Percentage of clipped ratios: {int((abs(ratio) - 1 > PPO_CLIP_EPS).sum() / ratio.shape[0] * 100)}%")
                 ppo_loss = -torch.min(obj1, obj2).mean() # policy loss
-                val_loss = (ret - value).pow(2).mean() # value loss
                 #print(f"[CRITIC LOSS]: {val_loss:.10f}     [ACTOR LOSS]: {ppo_loss:.10f}      [ENTROPY]: {entropy:.10f}")
 
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
+                val_loss = (ret - value).pow(2).mean() # value loss
                 ppo_loss = ACTOR_LOSS_COEFF * ppo_loss - ENTROPY_COEFF * entropy
                 ppo_loss.backward()
                 val_loss.backward()
                 ppo_losses.append(ppo_loss.item())
                 val_losses.append(val_loss.item())
-                #losses.append(loss.item())
 
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
