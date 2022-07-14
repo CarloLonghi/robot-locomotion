@@ -17,6 +17,8 @@ Collection of learning algorithms for robot locomotion using Revolve2
 2. Run plot_statistics.py to visualize the mean action reward and state value for each iteration
 3. Run rl_rerun_best.py to rerun the last agent
 
+Check out the report on the implementation [here](report.pdf).
+
 ### To train the robot using a Genetic Algorithm (GA):
 1. Run ga_optimize.py
 2. Run ga_rerun_best.py to rerun the best agent
