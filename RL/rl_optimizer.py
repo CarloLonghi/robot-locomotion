@@ -19,6 +19,8 @@ from revolve2.core.physics.running import (
 )
 from RL.rl_runner_train import LocalRunnerTrain
 
+import os
+
 
 class RLOptimizer():
 
@@ -82,6 +84,8 @@ class RLOptimizer():
         """
 
         # prepare file to log statistics
+        if not os.path.exists('RL/model_states'):
+            os.makedirs('RL/model_states')
         with open('RL/model_states/statistics.csv', 'w', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['mean_rew','mean_val'])

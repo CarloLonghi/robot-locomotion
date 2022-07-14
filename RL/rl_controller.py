@@ -16,8 +16,6 @@ from RL.interaction_buffer import Buffer
 from .actor_critic_network import Actor, ActorCritic, Critic, ObservationEncoder
 from .config import LR_ACTOR, LR_CRITIC, PPO_CLIP_EPS, NUM_ITERATIONS, LR_ACTOR, LR_CRITIC, N_EPOCHS, CRITIC_LOSS_COEFF, ENTROPY_COEFF, ACTOR_LOSS_COEFF
 
-from torchsummary import summary
-
 class RLcontroller(ActorController):
     _num_input_neurons: int
     _num_output_neurons: int
